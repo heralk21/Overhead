@@ -3,8 +3,6 @@ import MapKit
 import CoreLocation
 import Combine
 
-let AERO_KEY = "d2a47f140cmsh45dfdd9c85ae915p118942jsn1eee16011b8d"   // ← rapidapi.com → search "aerodatabox" → free tier
-
 // MARK: - 5×7 LED bitmap font
 let FONT: [Character:[UInt8]] = [
     " ":[0,0,0,0,0,0,0],
@@ -31,8 +29,6 @@ let FONT: [Character:[UInt8]] = [
     ",":[0,0,0,0,4,4,8],
 ]
 
-struct RouteData { let dep:String; let arr:String }
-
 // MARK: - Colors
 enum C {
     static let navy    = Color(red:0.04,green:0.06,blue:0.10)
@@ -45,15 +41,136 @@ enum C {
     static let t1      = Color.white
     static let t2      = Color.white.opacity(0.50)
     static let t3      = Color.white.opacity(0.24)
+    static let climb   = Color(red: 0.38, green: 0.82, blue: 0.58)
+}
+
+/// Consistent LED dot sizes across the app.
+enum LEDSize {
+    static let boardTitle: CGFloat = 3.0
+    static let boardHeader: CGFloat = 2.1
+    static let boardCallsign: CGFloat = 2.0
+    static let scanChip: CGFloat = 1.9
+    static let cardCallsign: CGFloat = 6.5
+    static let specLabel: CGFloat = 2.2
+}
+
+/// Shared top chrome spacing for all glass cards.
+enum CardChrome {
+    static let topPadding: CGFloat = 8
+    static let dashHeight: CGFloat = 4
+    /// Gap between grabber dash and the first row of card content.
+    static let grabberToContent: CGFloat = 22
+    /// Quick + detail cards — modest gap below the dash.
+    static let grabberToContentCompact: CGFloat = 12
+    /// List title row — 4pt lower than the default.
+    static let listTitleTopGap: CGFloat = 26
+    static let closeDiameter: CGFloat = 32
+    /// Inset from the card's top-trailing corner — follows the border curve.
+    static let closeBorderInset: CGFloat = 8
+    /// Keeps buttons / last rows above the card's bottom edge (inside the glass).
+    static let sheetContentBottomInset: CGFloat = 8
+    /// Clears the top squircle clip so the grabber / heading aren't cut off.
+    static let sheetContentTopInset: CGFloat = 6
+    /// Horizontal inset of the swipe footer — matches quick-card content padding (20pt).
+    static let detailFooterInsetFromCard: CGFloat = 20
+    /// Gap above and below the swipe pill (divider → pill → card bottom).
+    static let detailFooterVerticalGap: CGFloat = 12
+}
+
+/// Shared insets for floating glass popups (used in concentric radius math).
+enum CardLayout {
+    /// Horizontal gap from the display edge — also used in [screen radius − padding].
+    static let screenMargin: CGFloat = 10
+    /// Small gap between the card bottom curve and the physical screen edge.
+    static let bottomMargin: CGFloat = 6
+}
+
+/// Border-aligned dismiss control — glass circle tucked into the card corner.
+struct CloseButton: View {
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "xmark")
+                .font(.system(size: 13, weight: .semibold))
+                .symbolRenderingMode(.monochrome)
+                .foregroundStyle(Color.white)
+                .frame(width: CardChrome.closeDiameter, height: CardChrome.closeDiameter)
+                .background {
+                    Circle()
+                        .fill(.ultraThinMaterial)
+                }
+        }
+        .buttonStyle(.plain)
+        .frame(width: 44, height: 44)
+        .accessibilityLabel("Close")
+    }
+}
+
+/// Grab handle + optional close. Content gap is applied by each card below this view.
+struct CardGrabber: View {
+    var onClose: (() -> Void)? = nil
+    var onDragDismiss: (() -> Void)? = nil
+    @Binding var dragOffset: CGFloat
+
+    private var dragGesture: some Gesture {
+        DragGesture(minimumDistance: 10, coordinateSpace: .local)
+            .onChanged { value in
+                dragOffset = max(0, value.translation.height)
+            }
+            .onEnded { value in
+                let shouldDismiss = value.translation.height > 56
+                    || value.predictedEndTranslation.height > 110
+                if shouldDismiss, let onDragDismiss {
+                    withAnimation(.spring(response: 0.42, dampingFraction: 0.82)) {
+                        dragOffset = 0
+                        onDragDismiss()
+                    }
+                } else {
+                    withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) {
+                        dragOffset = 0
+                    }
+                }
+            }
+    }
+
+    private var dashRowHeight: CGFloat {
+        CardChrome.topPadding + CardChrome.dashHeight
+    }
+
+    var body: some View {
+        Color.clear
+            .frame(height: dashRowHeight)
+            .frame(maxWidth: .infinity)
+            .overlay {
+                RoundedRectangle(cornerRadius: 3)
+                    .fill(C.t3)
+                    .frame(width: 36, height: CardChrome.dashHeight)
+                    .padding(.top, CardChrome.topPadding)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    .contentShape(Rectangle())
+                    .gesture(dragGesture)
+            }
+            .overlay(alignment: .topTrailing) {
+                if let onClose {
+                    CloseButton(action: onClose)
+                        .padding(.top, CardChrome.closeBorderInset)
+                        .padding(.trailing, CardChrome.closeBorderInset)
+                }
+            }
+            .accessibilityAction(named: "Dismiss") {
+                onDragDismiss?()
+            }
+    }
 }
 
 // MARK: - LED Dot-Matrix Label
 // FitLED: self-sizing — fits ANY width by scaling dotPt down automatically.
 // Use this everywhere so text NEVER overflows on any device.
 struct LEDLabel: View {
-    let text:String; let dotPt:CGFloat; let color:Color; let dimmed:Bool
-    init(_ t:String, dotPt:CGFloat, color:Color = .white, dimmed:Bool = true) {
-        text=t; self.dotPt=dotPt; self.color=color; self.dimmed=dimmed
+    let text:String; let dotPt:CGFloat; let color:Color; let dimmed:Bool; let topAligned:Bool
+    init(_ t:String, dotPt:CGFloat, color:Color = .white, dimmed:Bool = true, topAligned:Bool = false) {
+        text=t; self.dotPt=dotPt; self.color=color; self.dimmed=dimmed; self.topAligned=topAligned
     }
     var body: some View {
         // GeometryReader measures available width, scales dotPt so text always fits
@@ -62,7 +179,7 @@ struct LEDLabel: View {
             let maxFit  = geo.size.width / CGFloat(chars * 6)
             let pt      = min(dotPt, maxFit)            // never exceed available space
             let h       = 7 * pt
-            let yOff    = (geo.size.height - h) / 2     // vertically center within frame
+            let yOff    = topAligned ? 0 : (geo.size.height - h) / 2
             Canvas { ctx, _ in
                 let r = pt * 0.38
                 var cx: CGFloat = 0
@@ -91,78 +208,38 @@ struct LEDLabel: View {
     }
 }
 
-// MARK: - Aircraft DB
-struct AircraftSpec { let name,wing,range,speed,cat:String }
-let AIRCRAFT_DB:[String:AircraftSpec] = [
-    "A319":.init(name:"AIRBUS A319",      wing:"34.1 M",range:"6,850 KM",speed:"833 KM/H",cat:"NARROW-BODY"),
-    "A320":.init(name:"AIRBUS A320",      wing:"35.8 M",range:"6,150 KM",speed:"833 KM/H",cat:"NARROW-BODY"),
-    "A321":.init(name:"AIRBUS A321",      wing:"35.8 M",range:"7,400 KM",speed:"833 KM/H",cat:"NARROW-BODY"),
-    "A20N":.init(name:"AIRBUS A320NEO",   wing:"35.8 M",range:"6,300 KM",speed:"833 KM/H",cat:"NARROW-BODY"),
-    "A21N":.init(name:"AIRBUS A321NEO",   wing:"35.8 M",range:"7,400 KM",speed:"833 KM/H",cat:"NARROW-BODY"),
-    "A332":.init(name:"AIRBUS A330-200",  wing:"60.3 M",range:"13,450 KM",speed:"871 KM/H",cat:"WIDE-BODY"),
-    "A333":.init(name:"AIRBUS A330-300",  wing:"60.3 M",range:"11,750 KM",speed:"871 KM/H",cat:"WIDE-BODY"),
-    "A359":.init(name:"AIRBUS A350-900",  wing:"64.8 M",range:"15,000 KM",speed:"903 KM/H",cat:"WIDE-BODY"),
-    "A388":.init(name:"AIRBUS A380-800",  wing:"79.8 M",range:"15,200 KM",speed:"903 KM/H",cat:"DOUBLE-DECK"),
-    "BCS1":.init(name:"AIRBUS A220-100",  wing:"35.1 M",range:"5,740 KM",speed:"871 KM/H",cat:"NARROW-BODY"),
-    "BCS3":.init(name:"AIRBUS A220-300",  wing:"35.1 M",range:"6,300 KM",speed:"871 KM/H",cat:"NARROW-BODY"),
-    "B737":.init(name:"BOEING 737-700",   wing:"35.8 M",range:"6,370 KM",speed:"842 KM/H",cat:"NARROW-BODY"),
-    "B738":.init(name:"BOEING 737-800",   wing:"35.8 M",range:"5,765 KM",speed:"842 KM/H",cat:"NARROW-BODY"),
-    "B739":.init(name:"BOEING 737-900",   wing:"35.8 M",range:"6,045 KM",speed:"842 KM/H",cat:"NARROW-BODY"),
-    "B38M":.init(name:"BOEING 737 MAX 8", wing:"35.9 M",range:"6,570 KM",speed:"842 KM/H",cat:"NARROW-BODY"),
-    "B752":.init(name:"BOEING 757-200",   wing:"38.1 M",range:"7,225 KM",speed:"854 KM/H",cat:"NARROW-BODY"),
-    "B763":.init(name:"BOEING 767-300",   wing:"47.6 M",range:"11,070 KM",speed:"851 KM/H",cat:"WIDE-BODY"),
-    "B772":.init(name:"BOEING 777-200",   wing:"60.9 M",range:"9,700 KM",speed:"905 KM/H",cat:"WIDE-BODY"),
-    "B77W":.init(name:"BOEING 777-300ER", wing:"64.8 M",range:"13,650 KM",speed:"950 KM/H",cat:"WIDE-BODY"),
-    "B788":.init(name:"BOEING 787-8",     wing:"60.1 M",range:"13,530 KM",speed:"903 KM/H",cat:"WIDE-BODY"),
-    "B789":.init(name:"BOEING 787-9",     wing:"60.1 M",range:"14,140 KM",speed:"903 KM/H",cat:"WIDE-BODY"),
-    "DH8D":.init(name:"BOMBARDIER Q400",  wing:"28.4 M",range:"2,040 KM",speed:"667 KM/H",cat:"TURBOPROP"),
-    "CRJ9":.init(name:"BOMBARDIER CRJ-900",wing:"24.9 M",range:"2,875 KM",speed:"830 KM/H",cat:"REGIONAL JET"),
-    "E175":.init(name:"EMBRAER E175",     wing:"26.0 M",range:"3,735 KM",speed:"870 KM/H",cat:"REGIONAL JET"),
-    "E190":.init(name:"EMBRAER E190",     wing:"28.7 M",range:"4,537 KM",speed:"870 KM/H",cat:"REGIONAL JET"),
-]
-
-// MARK: - Airport lookup
-let AIRPORTS:[String:(code:String,city:String)] = [
-    "CYVR":("YVR","VANCOUVER"),"CYYZ":("YYZ","TORONTO"),"CYUL":("YUL","MONTREAL"),
-    "CYYC":("YYC","CALGARY"),"CYEG":("YEG","EDMONTON"),"CYOW":("YOW","OTTAWA"),
-    "KLAX":("LAX","LOS ANGELES"),"KJFK":("JFK","NEW YORK"),"KORD":("ORD","CHICAGO"),
-    "KATL":("ATL","ATLANTA"),"KSFO":("SFO","SAN FRANCISCO"),"KDFW":("DFW","DALLAS"),
-    "KDEN":("DEN","DENVER"),"KSEA":("SEA","SEATTLE"),"KMIA":("MIA","MIAMI"),
-    "KBOS":("BOS","BOSTON"),"KLAS":("LAS","LAS VEGAS"),"KPHX":("PHX","PHOENIX"),
-    "EGLL":("LHR","LONDON"),"EGKK":("LGW","GATWICK"),
-    "LFPG":("CDG","PARIS"),"EHAM":("AMS","AMSTERDAM"),"EDDF":("FRA","FRANKFURT"),
-    "EDDM":("MUC","MUNICH"),"LEMD":("MAD","MADRID"),"LIRF":("FCO","ROME"),
-    "LSZH":("ZRH","ZURICH"),"OMDB":("DXB","DUBAI"),"OTHH":("DOH","DOHA"),
-    "VHHH":("HKG","HONG KONG"),"RJTT":("HND","TOKYO"),"RJAA":("NRT","NARITA"),
-    "RKSI":("ICN","SEOUL"),"WSSS":("SIN","SINGAPORE"),
-    "YMML":("MEL","MELBOURNE"),"YSSY":("SYD","SYDNEY"),
-]
-func displayAP(_ icao:String?)->(code:String,city:String) {
-    guard let s=icao,!s.isEmpty else { return ("???","") }
-    if let d=AIRPORTS[s] { return d }
-    if s.count==4&&(s.hasPrefix("K")||s.hasPrefix("C")) { return (String(s.dropFirst()),"") }
-    return (s.count>=3 ? String(s.suffix(3)):s,"")
+func airlineICAO(_ callsign: String) -> String {
+    String(callsign.prefix(3)).uppercased()
 }
 
-// MARK: - Airline helpers
-let AIRLINE_NAMES:[String:String] = [
-    "ACA":"AIR CANADA","JZA":"AC EXPRES","ROU":"AIR CANADA ROUGE","WJA":"WESTJET",
-    "WEN":"WESTJET EXP","UAL":"UNITED","DAL":"DELTA","AAL":"AMERICAN",
-    "SWA":"SOUTHWEST","ASA":"ALASKA AIR","SKW":"SKYWEST","JBU":"JETBLUE",
-    "BAW":"BRIT AIRWAYS","DLH":"LUFTHANSA","AFR":"AIR FRANCE","KLM":"KLM",
-    "UAE":"EMIRATES","QFA":"QANTAS","CPA":"CATHAY PAC","TSC":"AIR TRANSAT",
-    "RYR":"RYANAIR","EZY":"EASYJET","THY":"TURKISH AIR","FIN":"FINNAIR",
-    "SAS":"SCANDINAVIAN","IBE":"IBERIA","TAP":"TAP PORTUGAL","AZU":"AZUL",
-    "LAM":"LATAM","VOE":"VOLARIS","GLR":"AIR GLACIERS","PAL":"PHIL AIR",
-    "FDX":"FEDEX","UPS":"UPS AIR","ATN":"AIR TRANSPORT",
-]
-func airlineName(_ cs: String) -> String {
-    let prefix = String(cs.prefix(3)).uppercased()
-    if let name = AIRLINE_NAMES[prefix] { return name }
-    // Detect Canadian private registrations (C-FXXX, C-GXXX etc.)
-    let c2 = String(cs.prefix(2)).uppercased()
-    if c2 == "CF" || c2 == "CG" || c2 == "CI" { return "PRIVATE FLT" }
-    return "CHARTER FLT"
+/// Best available flight identifier for LED / list display.
+func displayCallsign(for flight: Flight, maxLength: Int = 6) -> String {
+    let trimmed = flight.callsign.trimmingCharacters(in: .whitespaces).uppercased()
+    if !trimmed.isEmpty { return String(trimmed.prefix(maxLength)) }
+    let reg = flight.registration.trimmingCharacters(in: .whitespaces).uppercased()
+    if !reg.isEmpty { return String(reg.prefix(maxLength)) }
+    let icao = flight.icao24.trimmingCharacters(in: .whitespaces).uppercased()
+    if !icao.isEmpty { return String(icao.prefix(maxLength)) }
+    return "N/A"
+}
+
+func airlineLEDColor(_ callsign: String) -> Color {
+    let rgb = AirlineLEDCache.accessibleBrandRGB(callsign: callsign)
+    return Color(red: rgb.r, green: rgb.g, blue: rgb.b)
+}
+
+func seedAeroInfo(from flight: Flight) -> AeroInfo {
+    var info = AeroInfo()
+    info.reg = flight.registration.uppercased()
+    info.icaoType = flight.type.uppercased()
+    if let s = AIRCRAFT_DB[info.icaoType] {
+        if info.typeName.isEmpty { info.typeName = s.name }
+        info.wing = s.wing
+        info.range = s.range
+        info.speed = s.speed
+        info.cat = s.cat
+    }
+    return info
 }
 
 // MARK: - AeroDataBox service
@@ -178,33 +255,43 @@ enum AcState { case loading, done }
     @Published var data:  [String: AeroInfo]  = [:]   // nil = not started
     @Published var state: [String: AcState]   = [:]   // nil = not started
 
-    func fetch(_ id: String) {
-        guard state[id] == nil else { return }   // already loading or done
+    func fetch(_ flight: Flight) {
+        let id = flight.icao24
+        if state[id] == .done { return }
+
+        // Show local + ADS-B data immediately (no blank sheet while API runs).
+        data[id] = seedAeroInfo(from: flight)
         state[id] = .loading
+
         Task {
-            var info = AeroInfo()
-            if !AERO_KEY.isEmpty {
+            var info = data[id] ?? seedAeroInfo(from: flight)
+
+            if !APIConfiguration.aeroDataBoxKey.isEmpty {
                 var req = URLRequest(
                     url: URL(string: "https://aerodatabox.p.rapidapi.com/aircrafts/icao24/\(id.lowercased())")!,
-                    timeoutInterval: 15)           // 15s timeout — fail fast
-                req.setValue(AERO_KEY, forHTTPHeaderField: "X-RapidAPI-Key")
+                    timeoutInterval: 6)
+                req.setValue(APIConfiguration.aeroDataBoxKey, forHTTPHeaderField: "X-RapidAPI-Key")
                 req.setValue("aerodatabox.p.rapidapi.com", forHTTPHeaderField: "X-RapidAPI-Host")
                 if let (d, resp) = try? await URLSession.shared.data(for: req),
                    (resp as? HTTPURLResponse)?.statusCode == 200,
                    let j = try? JSONSerialization.jsonObject(with: d) as? [String: Any] {
-                    info.reg         = (j["registration"]    as? String ?? "").uppercased()
-                    info.typeName    = (j["typeName"]        as? String ?? "").uppercased()
-                    info.icaoType    = (j["icaoTypeCode"]    as? String ?? "").uppercased()
+                    let reg  = (j["registration"] as? String ?? "").uppercased()
+                    let tn   = (j["typeName"]     as? String ?? "").uppercased()
+                    let it   = (j["icaoTypeCode"] as? String ?? "").uppercased()
+                    if !reg.isEmpty { info.reg = reg }
+                    if !tn.isEmpty  { info.typeName = tn }
+                    if !it.isEmpty  { info.icaoType = it }
                     info.seats       = j["numberSeats"]      as? Int
                     info.engines     = j["numberEngines"]    as? Int
                     info.firstFlight = (j["firstFlightDate"] as? String ?? "").uppercased()
                 }
             }
-            // Augment with local DB even when API fails
             if let s = AIRCRAFT_DB[info.icaoType] {
                 if info.typeName.isEmpty { info.typeName = s.name }
-                info.wing  = s.wing;  info.range = s.range
-                info.speed = s.speed; info.cat   = s.cat
+                info.wing  = s.wing
+                info.range = s.range
+                info.speed = s.speed
+                info.cat   = s.cat
             }
             data[id]  = info
             state[id] = .done
@@ -225,128 +312,264 @@ struct PulsingRing:View {
     }
 }
 
+// MARK: - Image padding trim
+
+private extension UIImage {
+    /// Crops fully/near-transparent margins so the opaque artwork fills the
+    /// result. Lets icons with different amounts of built-in padding all scale
+    /// to the same on-screen size.
+    func trimmingTransparentBorder(alphaThreshold: UInt8 = 12) -> UIImage {
+        guard let cg = cgImage, cg.width > 0, cg.height > 0 else { return self }
+        let w = cg.width, h = cg.height
+        let bytesPerRow = w * 4
+        var data = [UInt8](repeating: 0, count: w * h * 4)
+        guard let ctx = CGContext(data: &data, width: w, height: h,
+                                  bitsPerComponent: 8, bytesPerRow: bytesPerRow,
+                                  space: CGColorSpaceCreateDeviceRGB(),
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return self }
+        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
+
+        var minX = w, minY = h, maxX = -1, maxY = -1
+        for y in 0..<h {
+            let row = y * bytesPerRow
+            for x in 0..<w where data[row + x * 4 + 3] > alphaThreshold {
+                if x < minX { minX = x }
+                if x > maxX { maxX = x }
+                if y < minY { minY = y }
+                if y > maxY { maxY = y }
+            }
+        }
+        guard maxX >= minX, maxY >= minY,
+              let cropped = cg.cropping(to: CGRect(x: minX, y: minY,
+                                                   width: maxX - minX + 1,
+                                                   height: maxY - minY + 1))
+        else { return self }
+        return UIImage(cgImage: cropped, scale: scale, orientation: imageOrientation)
+    }
+}
+
 // MARK: - Plane pin (clean white icon)
 struct FlightPin:View {
     let flight:Flight; let selected:Bool
     var body: some View {
-        Image(systemName:"airplane")
-            .font(.system(size:selected ? 20:13,weight:selected ? .semibold:.medium))
-            .foregroundColor(.white)
-            .rotationEffect(.degrees(flight.heading-45))
-            .shadow(color:selected ? Color.white.opacity(0.55) : Color.black.opacity(0.35),
-                    radius:selected ? 5:2)
-            .scaleEffect(selected ? 1.3:1)
-            .animation(.spring(response:0.3,dampingFraction:0.72),value:selected)
+        Group {
+            if let asset = AircraftIcon.assetName(for: flight.type),
+               let ui = UIImage(named: asset) {
+                Image(uiImage: ui)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: selected ? 34 : 26, height: selected ? 34 : 26)
+                    // Asset icons are drawn nose-up (north = 0°): rotate by heading directly.
+                    .rotationEffect(.degrees(flight.heading))
+            } else {
+                Image(uiImage: AircraftIcon.genericOutlinedPinImage(
+                    tint: AircraftIcon.mapPinUIColor(for: flight.type)))
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: selected ? 34 : 26, height: selected ? 34 : 26)
+                    .rotationEffect(.degrees(flight.heading))
+            }
+        }
+        .shadow(color: Color.black.opacity(selected ? 0.55 : 0.35),
+                radius: selected ? 6 : 3)
+        .animation(.spring(response:0.3,dampingFraction:0.72),value:selected)
     }
 }
 
 // MARK: - Reusable glass panel background
-struct GlassBg:View {
-    var radius:CGFloat=36
+struct GlassBg: View {
+    var radius: CGFloat = 32
+
     var body: some View {
-        ZStack {
-            // True liquid glass: heavy blur, very light dark tint
-            RoundedRectangle(cornerRadius:radius).fill(.ultraThinMaterial)
-            RoundedRectangle(cornerRadius:radius)
-                .fill(Color.black.opacity(0.28))
-            RoundedRectangle(cornerRadius:radius)
-                .stroke(Color.white.opacity(0.18),lineWidth:0.5)
+        RoundedRectangle(cornerRadius: radius, style: .continuous)
+            .fill(.ultraThinMaterial)
+            .overlay {
+                RoundedRectangle(cornerRadius: radius, style: .continuous)
+                    .stroke(Color.white.opacity(0.12), lineWidth: 0.5)
+            }
+    }
+}
+
+/// Nested control fill — avoids stacking a second material layer on glass cards.
+struct GlassInsetFill: View {
+    var radius: CGFloat = 12
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: radius, style: .continuous)
+            .fill(Color.white.opacity(0.07))
+            .overlay {
+                RoundedRectangle(cornerRadius: radius, style: .continuous)
+                    .stroke(Color.white.opacity(0.12), lineWidth: 0.5)
+            }
+    }
+}
+
+extension View {
+    func glassCard(radius: CGFloat = 32) -> some View {
+        background { GlassBg(radius: radius) }
+            .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
+    }
+
+    func cardDragFade(_ offset: CGFloat) -> some View {
+        opacity(1 - min(offset / 280, 0.22))
+    }
+}
+
+/// Apple-style circular dismiss control — deprecated alias; use CloseButton.
+typealias GlassCloseButton = CloseButton
+
+/// Toolbar icon — pure white, no background or border.
+struct GlassIconButton: View {
+    let systemName: String
+    let action: () -> Void
+    var accessibilityLabel: String = ""
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 17, weight: .medium))
+                .symbolRenderingMode(.monochrome)
+                .foregroundStyle(Color.white)
+                .frame(width: 44, height: 44)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(accessibilityLabel.isEmpty ? systemName : accessibilityLabel)
+    }
+}
+
+/// Capsule glass bar (bottom map controls).
+struct GlassCapsule: View {
+    var body: some View {
+        Capsule().fill(.ultraThinMaterial)
+    }
+}
+
+// MARK: - Detail CTA footer — inset pill with concentric corners
+struct DetailAnimButton: View {
+    let onDetails: () -> Void
+    @State private var flying = false
+
+    private let insetFromCard = CardChrome.detailFooterInsetFromCard
+    private let minTapHeight: CGFloat = 54
+    private let hPad: CGFloat = 24
+    private let iconSize: CGFloat = 18
+    private let iconHalf: CGFloat = 11
+    /// Matches the plane's spring so details open as it arrives on the right.
+    private let flightDuration: TimeInterval = 0.55
+
+    @available(iOS 16.0, *)
+    private var footerShape: UnevenRoundedRectangle {
+        CardCornerMetrics.detailFooterShape(insetFromCard: insetFromCard)
+    }
+
+    var body: some View {
+        Button(action: playFlightThenOpen) {
+            ZStack {
+                Text("See Airplane Details")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(C.t1)
+                    .frame(maxWidth: .infinity)
+                    .opacity(flying ? 0 : 1)
+                    .animation(.easeInOut(duration: 0.13), value: flying)
+            }
+            .overlay {
+                GeometryReader { geo in
+                    let startX = hPad + iconHalf
+                    let endX = geo.size.width - hPad - iconHalf
+                    Image(systemName: "airplane")
+                        .font(.system(size: iconSize, weight: .medium))
+                        .symbolRenderingMode(.monochrome)
+                        .foregroundStyle(AircraftIcon.mapPinColor(for: ""))
+                        .position(
+                            x: flying ? endX : startX,
+                            y: geo.size.height / 2
+                        )
+                        .animation(
+                            .spring(response: flightDuration, dampingFraction: 0.7),
+                            value: flying
+                        )
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: minTapHeight)
+            .background {
+                if #available(iOS 16.0, *) {
+                    footerShape
+                        .fill(Color.white.opacity(0.07))
+                        .overlay {
+                            footerShape.stroke(Color.white.opacity(0.12), lineWidth: 0.5)
+                        }
+                } else {
+                    GlassInsetFill(radius: 12)
+                }
+            }
+            .modifier(DetailFooterClipModifier(insetFromCard: insetFromCard))
+        }
+        .buttonStyle(.plain)
+        .disabled(flying)
+        .accessibilityLabel("See Airplane Details")
+    }
+
+    private func playFlightThenOpen() {
+        flying = true
+        Task { @MainActor in
+            let nanos = UInt64(flightDuration * 1_000_000_000)
+            try? await Task.sleep(nanoseconds: nanos)
+            onDetails()
         }
     }
 }
 
-// MARK: - Detail CTA button
-// Plane icon LEFT; long-press: text fades, plane flies to right, triggers action
-struct DetailAnimButton:View {
-    let onDetails:()->Void
-    @GestureState private var pressing=false
-    var body: some View {
-        GeometryReader { geo in
-            ZStack {
-                GlassBg(radius:16)
-                HStack {
-                    Image(systemName:"airplane")
-                        .font(.system(size:18,weight:.semibold))
-                        .foregroundColor(C.t1)
-                        .shadow(color:C.ledBlue.opacity(0.5),radius:4)
-                        .offset(x:pressing ? geo.size.width-54:0)
-                        .animation(
-                            pressing ? .spring(response:0.55,dampingFraction:0.7)
-                                     : .spring(response:0.3,dampingFraction:0.85),
-                            value:pressing)
-                    Spacer()
-                }
-                .padding(.horizontal,20)
-                Text("See Airplane Details")
-                    .font(.system(size:16,weight:.semibold))
-                    .foregroundColor(C.t1)
-                    .opacity(pressing ? 0:1)
-                    .animation(.easeInOut(duration:0.13),value:pressing)
-            }
+private struct DetailFooterClipModifier: ViewModifier {
+    let insetFromCard: CGFloat
+
+    func body(content: Content) -> some View {
+        if #available(iOS 16.0, *) {
+            let shape = CardCornerMetrics.detailFooterShape(insetFromCard: insetFromCard)
+            content
+                .clipShape(shape)
+                .contentShape(shape)
+        } else {
+            content
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         }
-        .frame(height:54)
-        .clipShape(RoundedRectangle(cornerRadius:16))  // ← prevent plane escaping
-        .gesture(
-            LongPressGesture(minimumDuration:0.55)
-                .updating($pressing) { v,s,_ in s=v }
-                .onEnded { _ in onDetails() }
-        )
     }
 }
 
 // MARK: - Quick Card (exact match Image 1)
-struct QuickCard:View {
-    let flight:Flight; let route:RouteData?
-    let onDismiss:()->Void; let onDetails:()->Void
+struct QuickCard: View {
+    let flight: Flight
+    let onDismiss: () -> Void
+    let onDetails: () -> Void
 
-    var cs: String { String(flight.callsign.prefix(6)).uppercased() }
+    @State private var dragOffset: CGFloat = 0
+
+    var cs: String { displayCallsign(for: flight) }
 
     var body: some View {
-        VStack(spacing:0) {
-
-            // ── Handle + close (NO plane icon per request) ──
-            HStack {
-                Spacer()
-                RoundedRectangle(cornerRadius:3).fill(C.t3).frame(width:36,height:4)
-                Spacer()
-            }
-            .overlay(alignment:.topTrailing) {
-                Button(action:onDismiss) {
-                    ZStack {
-                        Circle().fill(Color.white.opacity(0.14)).frame(width:32,height:32)
-                            .overlay(Circle().stroke(Color.white.opacity(0.18),lineWidth:0.5))
-                        Image(systemName:"xmark").font(.system(size:11,weight:.bold)).foregroundColor(C.t1)
-                    }
-                }
-                .frame(width:44,height:44).accessibilityLabel("Dismiss")
-                .padding(.trailing,8)
-            }
-            .padding(.top,10)
+        VStack(spacing: 0) {
+            CardGrabber(onClose: onDismiss, onDragDismiss: onDismiss, dragOffset: $dragOffset)
 
             // ── Callsign in LED ──
-            LEDLabel(cs, dotPt:6.5)
-                .frame(maxWidth:.infinity,alignment:.leading)
-                .padding(.horizontal,20).padding(.top,10).padding(.bottom,14)
+            LEDLabel(cs, dotPt: LEDSize.cardCallsign, dimmed: false, topAligned: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.leading, 20)
+                .padding(.trailing, 56)
+                .padding(.top, CardChrome.grabberToContentCompact)
+                .padding(.bottom, 14)
+                .accessibilityLabel("Flight \(cs)")
 
             div
 
-            // ── Airline + route ──
+            // ── Airline ──
             HStack {
                 Text(airlineName(flight.callsign))
-                    .font(.system(size:13,weight:.semibold,design:.monospaced))
-                    .foregroundColor(C.coral)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(C.coral)
                 Spacer()
-                if let rt=route {
-                    HStack(spacing:4) {
-                        Text(displayAP(rt.dep).code)
-                        Image(systemName:"arrow.right").font(.system(size:8))
-                        Text(displayAP(rt.arr).code)
-                    }
-                    .font(.system(size:11,weight:.medium,design:.monospaced))
-                    .foregroundColor(C.t2)
-                }
             }
-            .padding(.horizontal,20).padding(.vertical,10)
+            .padding(.horizontal, 20).padding(.vertical, 10)
 
             div
 
@@ -354,55 +577,91 @@ struct QuickCard:View {
             qRow("ALTITUDE", "\(max(0,flight.altitudeInFeet)) FT")
             qRow("SPEED",    "\(flight.velocityInKnots) KT")
             qRow("HEADING",  "\(Int(flight.heading))° \(flight.headingDirection)")
-            qRow("STATUS",   flight.altitudeStatus.uppercased())
+            qRow("STATUS", flight.phase.displayName,
+                 valueColor: boardStatusColor(flight.phase))
 
             div
 
-            // ── CTA: long press to see aircraft build details ──
-            DetailAnimButton(onDetails:onDetails)
-                .padding(.horizontal,18).padding(.top,12).padding(.bottom,20)
+            // ── CTA footer: equal gap above and below the pill ──
+            DetailAnimButton(onDetails: onDetails)
+                .padding(.horizontal, CardChrome.detailFooterInsetFromCard)
+                .padding(.top, CardChrome.detailFooterVerticalGap)
+                .padding(.bottom, CardChrome.detailFooterVerticalGap)
+                .safeAreaPadding(.bottom)
         }
-        .frame(maxWidth:.infinity)
-        .background(GlassBg(radius:32))
+        .frame(maxWidth: .infinity)
+        .glassPopupCard(anchorsFooter: true)
+        .offset(y: dragOffset)
+        .cardDragFade(dragOffset)
     }
 
     var div: some View {
         Rectangle().fill(C.sep).frame(height:0.5).padding(.horizontal,20)
     }
 
-    func qRow(_ label:String, _ value:String) -> some View {
+    func qRow(_ label: String, _ value: String, valueColor: Color = C.t1) -> some View {
         HStack {
             Text(label)
-                .font(.system(size:11,weight:.medium,design:.monospaced))
-                .foregroundColor(C.t2)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(C.t2)
+                .textCase(.uppercase)
             Spacer()
             Text(value)
-                .font(.system(size:11,weight:.semibold,design:.monospaced))
-                .foregroundColor(C.t1)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(valueColor)
         }
-        .padding(.horizontal,20).padding(.vertical,8)
+        .padding(.horizontal, 20).padding(.vertical, 9)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(label), \(value)")
     }
 }
 
 // MARK: - Spec row (Image 2: blue LED label LEFT, white value RIGHT)
-struct SpecRow:View {
-    let label:String; let value:String
+// Pulsing placeholder while AeroDataBox enrichment runs
+struct SpecRowSkeleton: View {
+    let label: String
+    @State private var pulse = false
     var body: some View {
-        VStack(spacing:0) {
-            HStack(alignment:.center,spacing:8) {
-                // LED dot-matrix label (blue) — matches Image 3 exactly
-                LEDLabel(label, dotPt:2.2, color:C.ledBlue)
-                Spacer(minLength:6)
-                // Right-aligned value in monospaced white
+        VStack(spacing: 0) {
+            HStack {
+                Text(label)
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .foregroundColor(C.t2)
+                Spacer()
+                RoundedRectangle(cornerRadius: 3)
+                    .fill(Color.white.opacity(pulse ? 0.14 : 0.06))
+                    .frame(width: 88, height: 12)
+            }
+            .padding(.vertical, 15)
+            Rectangle().fill(C.sep).frame(height: 0.5)
+        }
+        .onAppear {
+            withAnimation(.easeInOut(duration: 0.75).repeatForever(autoreverses: true)) { pulse = true }
+        }
+    }
+}
+
+struct SpecRow: View {
+    let label: String
+    let value: String
+    var showsDivider: Bool = true
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(alignment: .center, spacing: 8) {
+                LEDLabel(label, dotPt: LEDSize.specLabel, color: C.ledBlue)
+                Spacer(minLength: 6)
                 Text(value)
-                    .font(.system(size:12,weight:.regular,design:.monospaced))
-                    .foregroundColor(C.t1).tracking(0.3)
+                    .font(.system(size: 13, weight: .regular))
+                    .foregroundStyle(C.t1)
                     .multilineTextAlignment(.trailing)
                     .lineLimit(2)
-                    .fixedSize(horizontal:false,vertical:true)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            .padding(.vertical,15)
-            Rectangle().fill(C.sep).frame(height:0.5)
+            .padding(.vertical, 15)
+            if showsDivider {
+                Rectangle().fill(C.sep).frame(height: 0.5)
+            }
         }
     }
 }
@@ -410,112 +669,110 @@ struct SpecRow:View {
 // MARK: - Flight Detail View — aircraft build info (Image 2 style)
 // Shows: airline header + TYPE, REGISTRATION, CAPACITY, WINGSPAN etc.
 // Does NOT show speed/altitude (those are in the quick card)
-struct FlightDetailView:View {
-    let flight:Flight; let route:RouteData?
-    @ObservedObject var aircraft:AircraftService
-    @Environment(\.dismiss) private var dismiss
+struct FlightDetailView: View {
+    let flight: Flight
+    let route: RouteData?
+    @ObservedObject var aircraft: AircraftService
+    let onDismiss: () -> Void
+    var maxScrollHeight: CGFloat = 420
+
+    @State private var dragOffset: CGFloat = 0
 
     var airline: String { airlineName(flight.callsign) }
-    var acColor: Color   { AIRLINE_NAMES.keys.contains(String(flight.callsign.prefix(3)).uppercased())
-                            ? .red : C.blue }
+    var info: AeroInfo { aircraft.data[flight.icao24] ?? seedAeroInfo(from: flight) }
+    var enriching: Bool { aircraft.state[flight.icao24] == .loading }
 
     var body: some View {
-        ZStack {
-            Color(red:0.08,green:0.11,blue:0.16).ignoresSafeArea()
-            VStack(spacing:0) {
-                // System drag indicator space
-                Spacer(minLength:6)
+        VStack(spacing: 0) {
+            CardGrabber(onClose: onDismiss, onDragDismiss: onDismiss, dragOffset: $dragOffset)
 
-                // ── Close button (top-right, no plane icon) ──
-                HStack {
-                    Spacer()
-                    Button(action:{ dismiss() }) {
-                        ZStack {
-                            Circle().fill(Color.white.opacity(0.14)).frame(width:38,height:38)
-                                .overlay(Circle().stroke(Color.white.opacity(0.2),lineWidth:0.5))
-                            Image(systemName:"xmark").font(.system(size:13,weight:.bold)).foregroundColor(C.t1)
-                        }
-                    }
-                    .accessibilityLabel("Close")
-                }
-                .padding(.horizontal,20).padding(.top,6).padding(.bottom,12)
-
-                // ── Airline header (matches Image 2 style) ──
-                HStack(spacing:14) {
-                    ZStack {
-                        Circle().fill(acColor.opacity(0.9)).frame(width:44,height:44)
-                        Image(systemName:"airplane")
-                            .font(.system(size:18,weight:.semibold))
-                            .foregroundColor(.white)
-                    }
+            HStack(spacing: 14) {
+                AirlineLogoView(callsign: flight.callsign, size: 56)
+                    .accessibilityLabel("\(airline) logo")
+                VStack(alignment: .leading, spacing: 4) {
                     Text(airline)
-                        .font(.system(size:20,weight:.bold))
-                        .foregroundColor(C.t1)
-                    Spacer()
-                }
-                .padding(.horizontal,20).padding(.bottom,14)
-
-                Rectangle().fill(C.sep).frame(height:0.5).padding(.horizontal,20)
-
-                // ── Aircraft spec rows ──
-                ScrollView(showsIndicators:false) {
-                    VStack(spacing:0) {
-                        if aircraft.state[flight.icao24] == .done,
-                           let info = aircraft.data[flight.icao24],
-                           (!info.typeName.isEmpty || info.seats != nil || info.wing != nil) {
-                            if !info.typeName.isEmpty { SpecRow(label:"Type",           value:info.typeName) }
-                            if !info.reg.isEmpty      { SpecRow(label:"Registration",   value:info.reg) }
-                            if let v = info.firstFlight, !v.isEmpty {
-                                                        SpecRow(label:"First Flight",   value:v) }
-                            if let n = info.seats     { SpecRow(label:"Capacity",       value:"\(n) passengers") }
-                            if let n = info.engines   { SpecRow(label:"Engines",        value:"\(n) engines") }
-                            if let v = info.wing      { SpecRow(label:"Wingspan",       value:v) }
-                            if let v = info.range     { SpecRow(label:"Range",          value:v) }
-                            if let v = info.speed     { SpecRow(label:"Max Speed",      value:v) }
-                            if let v = info.cat       { SpecRow(label:"Category",       value:v) }
-                        } else if aircraft.state[flight.icao24] == .loading {
-                            // Still fetching from AeroDataBox
-                            HStack(spacing:10) {
-                                ProgressView().scaleEffect(0.8).tint(C.ledBlue)
-                                Text("Fetching aircraft data...")
-                                    .font(.system(size:13)).foregroundColor(C.t2)
-                            }.padding(24)
-                        } else if !AERO_KEY.isEmpty {
-                            // Fetch done but no data returned (private/unknown aircraft)
-                            VStack(spacing:6) {
-                                Text("No aircraft data found")
-                                    .font(.system(size:13,weight:.semibold)).foregroundColor(C.t2)
-                                Text("AeroDataBox has no record for this aircraft")
-                                    .font(.system(size:11)).foregroundColor(C.t3)
-                                    .multilineTextAlignment(.center)
-                                // Show identifiers
-                                SpecRow(label:"Callsign", value:flight.callsign.uppercased())
-                                SpecRow(label:"ICAO 24",  value:flight.icao24.uppercased())
-                            }.padding(.top,16)
-                        } else {
-                            VStack(spacing:8) {
-                                Text("No aircraft data available")
-                                    .font(.system(size:13,weight:.medium)).foregroundColor(C.t2)
-                                Text("Add your AeroDataBox API key in ContentView.swift\nto see type, capacity, wingspan & more.")
-                                    .font(.system(size:11)).foregroundColor(C.t3)
-                                    .multilineTextAlignment(.center)
-                            }.padding(24)
-                            // Show basic identifiers as fallback
-                            SpecRow(label:"Callsign",    value:flight.callsign.uppercased())
-                            SpecRow(label:"ICAO 24",     value:flight.icao24.uppercased())
-                            if let rt=route {
-                                SpecRow(label:"From", value:"\(displayAP(rt.dep).code) \(displayAP(rt.dep).city)")
-                                SpecRow(label:"To",   value:"\(displayAP(rt.arr).code) \(displayAP(rt.arr).city)")
-                            }
+                        .font(.system(size: 20, weight: .bold))
+                        .foregroundStyle(C.t1)
+                    if enriching {
+                        HStack(spacing: 6) {
+                            ProgressView().scaleEffect(0.65).tint(C.ledBlue)
+                            Text("Loading more specs…")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(C.t2)
                         }
                     }
-                    .padding(.horizontal,20)
-                    // Bottom safe area so last row doesn't touch screen edge
-                    .padding(.bottom,40)
                 }
+                Spacer()
+            }
+            .padding(.leading, 20)
+            .padding(.trailing, 56)
+            .padding(.top, CardChrome.grabberToContentCompact)
+            .padding(.bottom, 14)
+
+            Rectangle().fill(C.sep).frame(height: 0.5).padding(.horizontal, 20)
+
+            specsBody
+        }
+        .frame(maxWidth: .infinity)
+        .glassPopupCard()
+        .offset(y: dragOffset)
+        .cardDragFade(dragOffset)
+        .onAppear { aircraft.fetch(flight) }
+    }
+
+    @ViewBuilder
+    private var specsBody: some View {
+        let rows = specEntries
+        if rows.count > 7 {
+            ScrollView(showsIndicators: false) {
+                specRowsView(rows)
+            }
+            .frame(maxHeight: maxScrollHeight)
+        } else {
+            specRowsView(rows)
+        }
+    }
+
+    private func specRowsView(_ rows: [(label: String, value: String)]) -> some View {
+        VStack(spacing: 0) {
+            ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
+                SpecRow(
+                    label: row.label,
+                    value: row.value,
+                    showsDivider: index < rows.count - 1
+                )
             }
         }
-        .onAppear { aircraft.fetch(flight.icao24) }
+        .padding(.horizontal, 20)
+        .padding(.bottom, 20)
+    }
+
+    private var specEntries: [(label: String, value: String)] {
+        var rows: [(String, String)] = []
+        let typeValue = !info.typeName.isEmpty ? info.typeName : info.icaoType
+        if !typeValue.isEmpty { rows.append(("Type", typeValue)) }
+        if !info.reg.isEmpty { rows.append(("Registration", info.reg)) }
+        if let v = info.firstFlight, !v.isEmpty { rows.append(("First Flight", v)) }
+        if let n = info.seats { rows.append(("Capacity", "\(n) passengers")) }
+        if let n = info.engines { rows.append(("Engines", "\(n) engines")) }
+        if let v = info.wing { rows.append(("Wingspan", v)) }
+        if let v = info.range { rows.append(("Range", v)) }
+        if let v = info.speed { rows.append(("Max Speed", v)) }
+        if let v = info.cat { rows.append(("Category", v)) }
+
+        if enriching {
+            if info.seats == nil { rows.append(("Capacity", "…")) }
+            if info.engines == nil { rows.append(("Engines", "…")) }
+            if info.firstFlight == nil || info.firstFlight?.isEmpty == true {
+                rows.append(("First Flight", "…"))
+            }
+        }
+
+        if rows.isEmpty && !enriching {
+            rows.append(("Callsign", flight.callsign.uppercased()))
+            rows.append(("ICAO 24", flight.icao24.uppercased()))
+        }
+        return rows
     }
 }
 
@@ -547,110 +804,224 @@ struct FlapRow:View {
     }
 }
 
-// MARK: - Board Overlay (map always visible above)
-struct BoardOverlay:View {
-    let flights:[Flight]; let routes:[String:RouteData]
-    let onClose:()->Void; let onRefresh:()->Void; let onDetail:(Flight)->Void
+/// Compact glass control for the flights board toolbar (inline with title).
+struct BoardRefreshButton: View {
+    let action: () -> Void
 
     var body: some View {
-        VStack(spacing:0) {
-            Spacer()
-            ZStack {
-                GlassBg(radius:36)
-                VStack(spacing:0) {
-                    RoundedRectangle(cornerRadius:3).fill(C.t3)
-                        .frame(width:44,height:4).padding(.top,14)
-                    // Toolbar
-                    HStack {
-                        Button(action:onClose) {
-                            Image(systemName:"map").font(.system(size:15,weight:.medium)).foregroundColor(C.t1)
-                                .frame(width:42,height:42)
-                                .background(Color.white.opacity(0.09)).clipShape(RoundedRectangle(cornerRadius:12))
-                                .overlay(RoundedRectangle(cornerRadius:12).stroke(C.sep,lineWidth:0.5))
-                        }
-                        Spacer()
-                        Text("FLIGHTS").font(.system(size:9,weight:.heavy,design:.monospaced))
-                            .foregroundColor(C.ledBlue).tracking(4)
-                        Spacer()
-                        Button(action:onRefresh) {
-                            Image(systemName:"arrow.clockwise").font(.system(size:15,weight:.medium)).foregroundColor(C.t1)
-                                .frame(width:42,height:42)
-                                .background(Color.white.opacity(0.09)).clipShape(RoundedRectangle(cornerRadius:12))
-                                .overlay(RoundedRectangle(cornerRadius:12).stroke(C.sep,lineWidth:0.5))
-                        }
-                    }.padding(.horizontal,20).padding(.top,14)
-                    // Column headers
-                    Rectangle().fill(C.sep).frame(height:0.5).padding(.horizontal,20).padding(.top,12)
-                    HStack(spacing:0) {
-                        Text("FLIGHT").frame(width:95,alignment:.leading)
-                        Text("TO").frame(maxWidth:.infinity,alignment:.leading)
-                        Text("ALT").frame(width:52,alignment:.trailing)
-                        Text("STATUS").frame(width:68,alignment:.trailing)
-                    }
-                    .font(.system(size:8,weight:.heavy,design:.monospaced))
-                    .foregroundColor(C.ledBlue.opacity(0.65)).tracking(1.5)
-                    .padding(.horizontal,20).padding(.vertical,9)
-                    Rectangle().fill(C.sep).frame(height:0.5).padding(.horizontal,20)
-                    ScrollView(showsIndicators:false) {
-                        VStack(spacing:0){
-                            ForEach(Array(flights.enumerated()),id:\.element.id){ i,f in
-                                boardRow(f,i,onDetail:onDetail)
-                                if i<flights.count-1 {
-                                    Rectangle().fill(C.sep.opacity(0.55)).frame(height:0.5).padding(.leading,20)
-                                }
-                            }
+        Button(action: action) {
+            Image(systemName: "arrow.clockwise")
+                .font(.system(size: 15, weight: .semibold))
+                .symbolRenderingMode(.monochrome)
+                .foregroundStyle(Color.white)
+                .frame(width: 34, height: 34)
+                .background { GlassInsetFill(radius: 10) }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Refresh flights")
+    }
+}
+
+func boardStatusColor(_ phase: FlightPhase) -> Color {
+    switch phase {
+    case .takingOff: return C.climb
+    case .landing: return C.coral
+    case .onLand: return C.t2
+    case .cruise: return C.t1
+    }
+}
+
+// MARK: - Board Overlay (map always visible above)
+struct BoardOverlay: View {
+    let flights: [Flight]
+    let routes: [String: RouteData]
+    let onClose: () -> Void
+    let onRefresh: () -> Void
+    let onDetail: (Flight) -> Void
+    var maxListHeight: CGFloat = 420
+
+    @State private var dragOffset: CGFloat = 0
+
+    @ScaledMetric(relativeTo: .body) private var rowHeight: CGFloat = 52
+
+    private let hPad: CGFloat = 20
+    private let altColWidth: CGFloat = 52
+    private let statusColWidth: CGFloat = 76
+    private let actionColWidth: CGFloat = 48
+
+    var body: some View {
+        VStack(spacing: 0) {
+            CardGrabber(onDragDismiss: onClose, dragOffset: $dragOffset)
+
+            toolbar
+                .padding(.top, CardChrome.listTitleTopGap)
+
+            boardHeader
+            boardDivider
+
+            flightList
+        }
+        .glassPopupCard()
+        .offset(y: dragOffset)
+        .cardDragFade(dragOffset)
+    }
+
+    private var toolbar: some View {
+        HStack(alignment: .center, spacing: 12) {
+            LEDLabel("FLIGHTS", dotPt: LEDSize.boardTitle, color: .white, dimmed: false)
+                .frame(height: 7 * LEDSize.boardTitle)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityAddTraits(.isHeader)
+                .accessibilityLabel("Flights")
+
+            BoardRefreshButton(action: onRefresh)
+        }
+        .padding(.horizontal, hPad)
+        .padding(.bottom, 4)
+    }
+
+    private var boardHeader: some View {
+        boardGridRow(
+            flight: headerCell("FLIGHT", width: nil, align: .leading),
+            alt: headerCell("ALT", width: altColWidth, align: .leading),
+            status: headerCell("STATUS", width: statusColWidth, align: .leading),
+            action: Color.clear.frame(width: actionColWidth, height: 1)
+        )
+        .padding(.vertical, 8)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Column headers: flight, altitude, status")
+    }
+
+    @ViewBuilder
+    private var flightList: some View {
+        if flights.isEmpty {
+            Text("No flights nearby")
+                .font(.system(.subheadline, design: .monospaced))
+                .foregroundStyle(C.t2)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, hPad)
+                .padding(.vertical, 24)
+                .accessibilityLabel("No flights nearby")
+        } else {
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(Array(flights.enumerated()), id: \.element.id) { i, f in
+                        boardRow(f, index: i)
+                        if i < flights.count - 1 {
+                            boardDivider
                         }
                     }
                 }
             }
-            .frame(maxHeight:580)
-            .padding(.horizontal,10)
+            .scrollBounceBehavior(.basedOnSize, axes: .vertical)
+            .frame(maxHeight: flights.count > 8 ? maxListHeight : nil)
+            .padding(.bottom, 12)
         }
-        .padding(.bottom,0)
-        .ignoresSafeArea(edges:.bottom)
     }
 
-    func boardRow(_ f:Flight,_ i:Int, onDetail:@escaping (Flight)->Void)->some View {
-        let sc:Color = { switch f.altitudeStatus {
-            case "Takeoff","Climb": return .orange
-            case "Cruise","High Alt": return C.cyan
-            default: return C.ledBlue } }()
-        let statusShort = f.altitudeStatus == "High Alt" ? "HI-ALT" :
-                          f.altitudeStatus == "Takeoff"  ? "T/OFF"  :
-                          String(f.altitudeStatus.prefix(6)).uppercased()
-        let altStr = "\(f.altitudeInFeet/1000)K"
-        return HStack(spacing:0) {
-            // FLIGHT — split-flap animation
-            FlapRow(text:f.callsign,sz:12,t0:Double(i)*0.04)
-                .frame(width:90,alignment:.leading)
-            // TO — LED dot-matrix
-            if let rt=routes[f.icao24] {
-                LEDLabel(displayAP(rt.arr).code, dotPt:2.8, color:.white)
-                    .frame(maxWidth:.infinity,alignment:.leading)
-            } else {
-                LEDLabel(statusShort, dotPt:2.5, color:C.t3)
-                    .frame(maxWidth:.infinity,alignment:.leading)
-            }
-            // ALT — LED dot-matrix cyan
-            LEDLabel(altStr, dotPt:2.8, color:C.cyan)
-                .frame(width:44,alignment:.trailing)
-            // STATUS — LED dot-matrix color-coded
-            LEDLabel(statusShort, dotPt:2.2, color:sc)
-                .frame(width:62,alignment:.trailing)
-            // Tap → detail
-            Button(action:{ onDetail(f) }) {
-                Image(systemName:"airplane.circle")
-                    .font(.system(size:16,weight:.regular))
-                    .foregroundColor(C.ledBlue.opacity(0.7))
-                    .padding(.leading,8)
-            }
+    private var boardDivider: some View {
+        Rectangle()
+            .fill(C.sep)
+            .frame(height: 0.5)
+            .padding(.horizontal, hPad)
+            .accessibilityHidden(true)
+    }
+
+    @ViewBuilder
+    private func headerCell(_ title: String, width: CGFloat?, align: Alignment) -> some View {
+        let label = Text(title)
+            .font(.system(size: 11, weight: .medium))
+            .foregroundStyle(C.t2)
+            .textCase(.uppercase)
+            .lineLimit(1)
+            .accessibilityHidden(true)
+
+        if let width {
+            label.frame(width: width, alignment: align)
+        } else {
+            label.frame(maxWidth: .infinity, alignment: align)
         }
-        .padding(.horizontal,16).padding(.vertical,12)
+    }
+
+    private func boardGridRow(
+        flight: some View,
+        alt: some View,
+        status: some View,
+        action: some View
+    ) -> some View {
+        HStack(spacing: 8) {
+            flight
+                .frame(maxWidth: .infinity, alignment: .leading)
+            alt
+                .frame(width: altColWidth, alignment: .leading)
+            status
+                .frame(width: statusColWidth, alignment: .leading)
+            action
+                .frame(width: actionColWidth, alignment: .center)
+        }
+        .padding(.horizontal, hPad)
+    }
+
+    private func boardRow(_ f: Flight, index i: Int) -> some View {
+        let statusColor = boardStatusColor(f.phase)
+        let statusShort = f.phase.compactName
+        let altStr = "\(max(1, f.altitudeInFeet / 1000))K"
+        let callsign = displayCallsign(for: f, maxLength: 12)
+        let displayCallsign = callsign == "N/A" ? "—" : callsign
+
+        return Button(action: { onDetail(f) }) {
+            boardGridRow(
+                flight: LEDLabel(displayCallsign, dotPt: LEDSize.boardCallsign, color: C.ledBlue, dimmed: false)
+                    .frame(height: 7 * LEDSize.boardCallsign),
+                alt: Text(altStr)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(C.t1)
+                    .lineLimit(1)
+                    .frame(width: altColWidth, alignment: .leading),
+                status: Text(statusShort)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(statusColor)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
+                    .frame(width: statusColWidth, alignment: .leading),
+                action: Image(systemName: "chevron.right")
+                    .font(.system(size: 13, weight: .semibold))
+                    .symbolRenderingMode(.monochrome)
+                    .foregroundStyle(Color.white)
+                    .frame(width: actionColWidth, height: 20)
+                    .accessibilityHidden(true)
+            )
+            .frame(minHeight: rowHeight)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(boardRowAccessibilityLabel(flight: f, altFeet: f.altitudeInFeet, status: f.phase.displayName))
+        .accessibilityHint("Opens flight details")
+    }
+
+    private func boardRowAccessibilityLabel(flight f: Flight, altFeet: Int, status: String) -> String {
+        let cs = f.callsign.trimmingCharacters(in: .whitespaces)
+        let airline = airlineName(f.callsign)
+        return "\(airline), flight \(cs), \(altFeet) feet, \(status)"
     }
 }
 
 
 // MARK: - FlightAnnotation
+
+/// Expands the tap target to at least 44 pt without changing the drawn icon size.
+private final class FlightPinAnnotationView: MKAnnotationView {
+    private static let minHitSize: CGFloat = 44
+
+    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+        let hit = bounds.insetBy(
+            dx: -max(0, (Self.minHitSize - bounds.width) / 2),
+            dy: -max(0, (Self.minHitSize - bounds.height) / 2)
+        )
+        return hit.contains(point)
+    }
+}
+
 final class FlightAnnotation: NSObject, MKAnnotation {
     var flight: Flight
     @objc dynamic var coordinate: CLLocationCoordinate2D
@@ -673,11 +1044,13 @@ struct LiveMap: UIViewRepresentable {
         let m = MKMapView()
         m.delegate = context.coordinator
         m.showsUserLocation = true
+        Self.applyMapAppearance(m)
         m.setRegion(region, animated: false)
         return m
     }
 
     func updateUIView(_ m: MKMapView, context: Context) {
+        Self.applyMapAppearance(m)
         let eps = 0.0005
         let cur = m.region
         if abs(cur.center.latitude  - region.center.latitude)  > eps ||
@@ -703,31 +1076,104 @@ struct LiveMap: UIViewRepresentable {
         }
     }
 
-    // Renders a GUARANTEED white airplane using UIGraphicsImageRenderer
-    // paletteColors is unreliable on iOS 15; this approach always works
-    private static func whiteAirplane(size: CGFloat, weight: UIImage.SymbolWeight) -> UIImage {
-        let cfg = UIImage.SymbolConfiguration(pointSize: size, weight: weight)
-        guard let sym = UIImage(systemName: "airplane", withConfiguration: cfg) else { return UIImage() }
-        // Draw white-tinted image into a new renderer to bake the color permanently
-        let renderer = UIGraphicsImageRenderer(size: sym.size)
-        return renderer.image { _ in
-            sym.withTintColor(.white, renderingMode: .alwaysOriginal).draw(at: .zero)
+    /// How much to darken the map tiles (0 = off, 0.4 = very dark). Planes are unaffected.
+    private static let mapDarkenAmount: CGFloat = 0.32
+    private static let mapTintLayerName = "overhead.mapDarken"
+
+    /// Native dark-map styling on the MKMapView itself (not a SwiftUI overlay).
+    private static func applyMapAppearance(_ m: MKMapView) {
+        m.overrideUserInterfaceStyle = .dark
+        m.backgroundColor = UIColor(red: 0.02, green: 0.025, blue: 0.035, alpha: 1)
+        let config = MKStandardMapConfiguration(elevationStyle: .flat, emphasisStyle: .muted)
+        config.pointOfInterestFilter = MKPointOfInterestFilter.excludingAll
+        m.preferredConfiguration = config
+        syncMapDarkenLayer(on: m)
+    }
+
+    /// Uniform multiply tint on the map layer — darkens tiles, not annotation views.
+    private static func syncMapDarkenLayer(on m: MKMapView) {
+        if mapDarkenAmount <= 0 {
+            m.layer.sublayers?.first { $0.name == mapTintLayerName }?.removeFromSuperlayer()
+            return
         }
+        let layer: CALayer
+        if let existing = m.layer.sublayers?.first(where: { $0.name == mapTintLayerName }) {
+            layer = existing
+        } else {
+            let l = CALayer()
+            l.name = mapTintLayerName
+            l.compositingFilter = "multiplyBlendMode"
+            m.layer.insertSublayer(l, at: 0)
+            layer = l
+        }
+        layer.frame = m.bounds
+        let multiplyWhite = max(0.45, 1 - mapDarkenAmount)
+        layer.backgroundColor = UIColor(white: multiplyWhite, alpha: 1).cgColor
+    }
+
+    // MARK: - Aircraft icon rendering
+
+    /// Baseline on-screen size (points) for **Large** (narrow-body) aircraft — the
+    /// longest *content* edge after transparent PNG borders are trimmed. Smaller and
+    /// larger tiers multiply this via `AircraftIcon.mapScale(for:)`.
+    private static let normalSize:   CGFloat = 23
+    private static let selectedSize: CGFloat = 32
+
+    /// Final scaled icons cached by "asset|size".
+    private static var iconCache: [String: UIImage] = [:]
+    /// Padding-trimmed base images cached by asset name (trim once, reuse).
+    private static var trimmedBaseCache: [String: UIImage] = [:]
+
+    /// Generic outlined SF Symbol icons tinted per aircraft family.
+    private static func genericIcon(tint: UIColor) -> UIImage {
+        AircraftIcon.genericOutlinedPinImage(tint: tint)
+    }
+
+    /// Returns a cached, padding-trimmed, aspect-scaled icon for an ICAO type.
+    private static func icon(forType type: String, target: CGFloat) -> UIImage {
+        let asset = AircraftIcon.assetName(for: type)
+        let tone = AircraftIcon.mapPinUIColor(for: type)
+        let cacheName = asset ?? "_generic|\(tone.description)"
+        let scaledTarget = target * AircraftIcon.mapScale(for: type)
+        let key = "\(cacheName)|\(Int(scaledTarget))"
+        if let cached = iconCache[key] { return cached }
+
+        let trimmed: UIImage
+        if let t = trimmedBaseCache[cacheName] {
+            trimmed = t
+        } else if let asset, let raw = UIImage(named: asset) {
+            let t = raw.trimmingTransparentBorder()
+            trimmedBaseCache[cacheName] = t
+            trimmed = t
+        } else {
+            let t = genericIcon(tint: tone)
+            trimmedBaseCache[cacheName] = t
+            trimmed = t
+        }
+
+        let longest = max(trimmed.size.width, trimmed.size.height)
+        let scale = longest > 0 ? scaledTarget / longest : 1
+        let newSize = CGSize(width: trimmed.size.width * scale, height: trimmed.size.height * scale)
+        let rendered = UIGraphicsImageRenderer(size: newSize).image { _ in
+            trimmed.draw(in: CGRect(origin: .zero, size: newSize))
+        }
+        iconCache[key] = rendered
+        return rendered
     }
 
     private func applyPinStyle(_ v: MKAnnotationView, fa: FlightAnnotation) {
         let sel = fa.flight.id == selectedId
-        let sz: CGFloat = sel ? 20 : 13
-        let wt: UIImage.SymbolWeight = sel ? .semibold : .regular
-        // Use the renderer-baked white image (no tintColor / palette dependency)
-        v.image = LiveMap.whiteAirplane(size: sz, weight: wt)
+        let target = sel ? LiveMap.selectedSize : LiveMap.normalSize
+        v.image = LiveMap.icon(forType: fa.flight.type, target: target)
         v.layer.contentsGravity = .resizeAspect
-        let angle = CGFloat((fa.flight.heading - 45) * .pi / 180)
+        // Asset icons are drawn nose-up (north = 0°): rotate by heading directly.
+        let angle = CGFloat(fa.flight.heading * .pi / 180)
         v.transform = CGAffineTransform(rotationAngle: angle)
-        v.layer.shadowColor   = UIColor.white.cgColor
-        v.layer.shadowRadius  = sel ? 5 : 1.5
-        v.layer.shadowOpacity = sel ? 0.5 : 0.2
+        v.layer.shadowColor   = UIColor.black.cgColor
+        v.layer.shadowRadius  = sel ? 6 : 3
+        v.layer.shadowOpacity = sel ? 0.55 : 0.40
         v.layer.shadowOffset  = .zero
+        v.layer.zPosition     = sel ? 1 : 0
     }
 
     final class Coordinator: NSObject, MKMapViewDelegate {
@@ -736,8 +1182,8 @@ struct LiveMap: UIViewRepresentable {
 
         func mapView(_ m: MKMapView, viewFor ann: MKAnnotation) -> MKAnnotationView? {
             guard let fa = ann as? FlightAnnotation else { return nil }
-            let v = m.dequeueReusableAnnotationView(withIdentifier: "fp")
-                ?? MKAnnotationView(annotation: ann, reuseIdentifier: "fp")
+            let v = m.dequeueReusableAnnotationView(withIdentifier: "fp") as? FlightPinAnnotationView
+                ?? FlightPinAnnotationView(annotation: ann, reuseIdentifier: "fp")
             v.annotation = ann
             v.canShowCallout = false
             parent.applyPinStyle(v, fa: fa)
@@ -763,17 +1209,26 @@ struct ContentView:View {
     @StateObject private var aircraft = AircraftService()
 
     @State private var region = MKCoordinateRegion(
-        center:CLLocationCoordinate2D(latitude:49.2827,longitude:-123.1207),
-        span:MKCoordinateSpan(latitudeDelta:1.8,longitudeDelta:1.8))
+        center: CLLocationCoordinate2D(latitude: 0, longitude: 0),
+        span: MKCoordinateSpan(latitudeDelta: 120, longitudeDelta: 120))
     @State private var userCoord:   CLLocationCoordinate2D? = nil
     @State private var quickFlight: Flight?  = nil
     @State private var detailFlight:Flight?  = nil
-    @State private var showDetail    = false
     @State private var showBoard     = false
     @State private var hasZoomedOnce = false    // prevents re-zoom on each refresh
+    @State private var didCenterOnUser = false  // ensures first GPS fix centers the map
+    @State private var awaitingLocation = true
     @State private var routes:       [String:RouteData] = [:]
+    @State private var pendingFlightIcao: String? = nil
+    @Environment(\.scenePhase) private var scenePhase
 
     let timer = Timer.publish(every:60,on:.main,in:.common).autoconnect()
+
+    private var showScanningOverlay: Bool {
+        service.flights.isEmpty
+            && service.errorMessage == nil
+            && (service.isLoading || awaitingLocation)
+    }
 
     var body: some View {
         GeometryReader { geo in
@@ -785,133 +1240,253 @@ struct ContentView:View {
                     onSelect:   tapPin)
                 .ignoresSafeArea()
 
-
-
-            // ── BOARD OVERLAY (map stays visible above) ──
-            if showBoard {
-                BoardOverlay(flights:service.flights, routes:routes,
-                    onClose:  { withAnimation(.spring(response:0.42,dampingFraction:0.82)){ showBoard=false } },
-                    onRefresh:{ refresh() },
-                    onDetail: { f in
-                        showBoard=false
-                        detailFlight=f
-                        DispatchQueue.main.asyncAfter(deadline:.now()+0.3){ showDetail=true }
-                    })
-                .transition(.move(edge:.bottom).combined(with:.opacity))
-                .zIndex(1)
-            }
-
-            // ── QUICK CARD ──
+            // ── BOTTOM PILL: list toggle + refresh (map only — hidden when any card is open) ──
             VStack {
                 Spacer()
-                if let f=quickFlight, !showBoard {
-                    QuickCard(flight:f, route:routes[f.icao24],
-                        onDismiss:{ withAnimation(.spring(response:0.38,dampingFraction:0.82)){ quickFlight=nil } },
-                        onDetails:{ detailFlight=f; showDetail=true })
-                    .frame(maxHeight: geo.size.height * 0.40)
-                    .padding(.horizontal,10)
-                    .transition(.move(edge:.bottom).combined(with:.opacity))
+                if quickFlight == nil && !showBoard && detailFlight == nil {
+                    bottomPill
+                        .padding(.bottom, 34)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
+            .zIndex(0)
+            .animation(.spring(response: 0.38, dampingFraction: 0.82),
+                       value: quickFlight == nil && !showBoard && detailFlight == nil)
+
+            // ── FLOATING CARDS (pinned to bottom) ──
+            ZStack(alignment: .bottom) {
+                if showBoard {
+                    BoardOverlay(flights: service.flights, routes: routes,
+                        onClose: { withAnimation(.spring(response: 0.42, dampingFraction: 0.82)) { showBoard = false } },
+                        onRefresh: { refresh() },
+                        onDetail: { f in
+                            showBoard = false
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { openDetail(f) }
+                        },
+                        maxListHeight: geo.size.height * 0.48)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .zIndex(1)
+                }
+
+                if let f = quickFlight, !showBoard, detailFlight == nil {
+                    QuickCard(flight: f,
+                        onDismiss: { dismissFlightSelection() },
+                        onDetails: { openDetail(f) })
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
                     .zIndex(2)
                 }
-            }
-            .animation(.spring(response:0.42,dampingFraction:0.82),value:quickFlight?.id)
 
-            // ── BOTTOM PILL: list toggle + location/refresh ──
-            VStack {
-                Spacer()
-                if quickFlight==nil && !showBoard {
-                    bottomPill.padding(.bottom,34)
-                        .transition(.move(edge:.bottom).combined(with:.opacity))
+                if let f = detailFlight {
+                    FlightDetailView(
+                        flight: f,
+                        route: routes[f.icao24],
+                        aircraft: aircraft,
+                        onDismiss: { dismissFlightSelection() },
+                        maxScrollHeight: geo.size.height * 0.42
+                    )
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .zIndex(4)
                 }
             }
-            .animation(.spring(response:0.38,dampingFraction:0.82),value:quickFlight==nil && !showBoard)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+            .padding(.horizontal, CardLayout.screenMargin)
+            .padding(.bottom, CardLayout.bottomMargin)
+            .ignoresSafeArea(edges: .bottom)
+            .zIndex(5)
+            .animation(.spring(response: 0.42, dampingFraction: 0.82), value: showBoard)
+            .animation(.spring(response: 0.42, dampingFraction: 0.82), value: quickFlight?.id)
+            .animation(.spring(response: 0.42, dampingFraction: 0.82), value: detailFlight?.id)
+
+            // ── Scanning overlay (first load only) ──
+            if showScanningOverlay {
+                VStack(spacing: 16) {
+                    LEDLabel("SCANNING AIRSPACE", dotPt: LEDSize.scanChip, color: C.ledBlue)
+                        .frame(height: 7 * LEDSize.scanChip)
+                    ProgressView()
+                        .scaleEffect(1.0)
+                        .tint(.white)
+                }
+                .frame(width: 152)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 32)
+                .background { GlassBg(radius: 20) }
+                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                .allowsHitTesting(false)
+            }
+
+            // ── Error banner ──
+            if let message = service.errorMessage, !service.isLoading {
+                VStack {
+                    HStack(spacing: 10) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundColor(C.coral)
+                        Text(message)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(C.t1)
+                            .multilineTextAlignment(.leading)
+                        Spacer(minLength: 8)
+                        Button("Retry") { refresh() }
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(C.ledBlue)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                    .background { GlassBg(radius: 16) }
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .padding(.horizontal, 12)
+                    .padding(.top, 56)
+                    Spacer()
+                }
+                .transition(.move(edge: .top).combined(with: .opacity))
+                .zIndex(3)
+            }
+
         }
         } // GeometryReader
         .preferredColorScheme(.dark)
-        .sheet(isPresented:$showDetail) {
-            sheetContent
+        .onOpenURL { url in
+            if let icao = FlightDeepLink.icao24(from: url) {
+                openFlightFromDeepLink(icao24: icao)
+            }
         }
         .onAppear {
-            // Auto-request location — NO welcome card per spec
-            location.requestOnce { loc in
-                userCoord=loc.coordinate
-                withAnimation(.easeInOut(duration:1.2)) {
-                    region=MKCoordinateRegion(
-                        center:loc.coordinate,
-                        span:MKCoordinateSpan(latitudeDelta:1.4,longitudeDelta:1.4))
+            awaitingLocation = true
+            service.errorMessage = nil
+            Task { _ = try? await OpenSkyAuth.shared.bearerToken() }
+            bootstrapFromCachedLocation()
+            location.requestOnce(
+                onLocation: { loc in
+                    awaitingLocation = false
+                    applyUserLocation(loc)
+                },
+                onError: { message in
+                    awaitingLocation = false
+                    if userCoord == nil {
+                        service.errorMessage = message
+                    }
                 }
-                service.fetchFlights(latitude:loc.coordinate.latitude,
-                                     longitude:loc.coordinate.longitude)
-                // zoom fires from onReceive when flights load (hasZoomedOnce flag)
-            } onError: { _ in
-                service.fetchFlights(latitude:region.center.latitude,longitude:region.center.longitude)
+            )
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .background {
+                publishWidgetBoard(reload: true)
             }
         }
         .onReceive(service.$flights) { fl in
+            if !service.isLoading {
+                publishWidgetBoard(reload: false)
+            }
             guard !fl.isEmpty else { return }
-            for f in fl.prefix(5) { fetchRoute(f) }
-            if !hasZoomedOnce, let coord = userCoord {
-                hasZoomedOnce = true
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+            for f in fl.prefix(4) {
+                fetchRoute(f)
+                aircraft.fetch(f)
+            }
+            resolvePendingFlightDeepLink(in: fl)
+            if !hasZoomedOnce, let coord = userCoord ?? location.recentLocation()?.coordinate {
+                // Only auto-frame when the loaded flights are actually near the user,
+                // so a stale default-region (Vancouver) batch never hijacks the view.
+                let ul = CLLocation(latitude: coord.latitude, longitude: coord.longitude)
+                let nearest = fl.map {
+                    CLLocation(latitude: $0.latitude, longitude: $0.longitude).distance(from: ul)
+                }.min() ?? .infinity
+                if nearest < 300_000 {
+                    hasZoomedOnce = true
                     zoomToClosest5(coord)
                 }
             }
         }
+        .onChange(of: quickFlight?.id) { _, _ in
+            if let f = quickFlight {
+                fetchRoute(f)
+                aircraft.fetch(f)
+            }
+        }
+        .onChange(of: showBoard) { _, open in
+            guard open else { return }
+            for f in service.flights.prefix(8) {
+                fetchRoute(f)
+                aircraft.fetch(f)
+            }
+        }
         .onReceive(timer) { _ in
-            guard !service.isLoading else { return }
-            let c=userCoord ?? region.center
-            service.fetchFlights(latitude:c.latitude,longitude:c.longitude)
+            guard !service.isLoading,
+                  let c = userCoord ?? location.recentLocation()?.coordinate ?? SharedWidgetLocation.coordinate()
+            else { return }
+            service.fetchFlights(latitude: c.latitude, longitude: c.longitude)
         }
     }
 
-    @ViewBuilder
-    var sheetContent: some View {
-        if let f=detailFlight {
-            if #available(iOS 16.0,*) {
-                FlightDetailView(flight:f,route:routes[f.icao24],aircraft:aircraft)
-                    // .fraction(0.60) keeps top ~40% of screen showing map — matches Image 4
-                    .presentationDetents([.fraction(0.60), .large])
-                    .presentationDragIndicator(.visible)
-                    .presentationCornerRadius(28)
-                    .presentationBackground(C.panelBg)
-            } else {
-                FlightDetailView(flight:f,route:routes[f.icao24],aircraft:aircraft)
-            }
-        }
+    /// Open the aircraft-detail card for a flight.
+    func openDetail(_ f: Flight) {
+        fetchRoute(f)
+        aircraft.fetch(f)
+        detailFlight = f
     }
 
     var bottomPill: some View {
-        HStack(spacing:0) {
-            Button(action:{ withAnimation(.spring(response:0.42,dampingFraction:0.82)){ showBoard=true }}) {
-                Image(systemName:"list.bullet")
-                    .font(.system(size:17,weight:.medium)).foregroundColor(C.t1)
-                    .frame(width:66,height:52)
+        HStack(spacing: 0) {
+            Button(action: { withAnimation(.spring(response: 0.42, dampingFraction: 0.82)) { showBoard = true } }) {
+                Image(systemName: "list.bullet")
+                    .font(.system(size: 17, weight: .medium))
+                    .symbolRenderingMode(.monochrome)
+                    .foregroundStyle(Color.white)
+                    .frame(width: 66, height: 52)
             }
-            Rectangle().fill(Color.white.opacity(0.18)).frame(width:0.5,height:22)
-            Button(action:refresh) {
+            .accessibilityLabel("Flight list")
+            .accessibilityHint("Shows nearby flights")
+            Rectangle().fill(Color.white.opacity(0.18)).frame(width: 0.5, height: 22)
+                .accessibilityHidden(true)
+            Button(action: refresh) {
                 Group {
                     if service.isLoading {
                         ProgressView().scaleEffect(0.7).tint(C.t1)
                     } else {
-                        Image(systemName:"location.circle")
-                            .font(.system(size:17,weight:.medium)).foregroundColor(C.t1)
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 17, weight: .medium))
+                            .symbolRenderingMode(.monochrome)
+                            .foregroundStyle(Color.white)
                     }
-                }.frame(width:66,height:52)
-            }.disabled(service.isLoading)
+                }
+                .frame(width: 66, height: 52)
+            }
+            .accessibilityLabel(service.isLoading ? "Refreshing flights" : "Refresh flights near you")
         }
-        .background(.ultraThinMaterial)
+        .background { GlassCapsule() }
         .clipShape(Capsule())
-        .overlay(Capsule().stroke(Color.white.opacity(0.15),lineWidth:0.5))
     }
 
 
 
     // MARK: Actions
+
+    func openFlightFromDeepLink(icao24: String) {
+        let key = icao24.lowercased()
+        showBoard = false
+        if let match = service.flights.first(where: { $0.icao24.lowercased() == key }) {
+            pendingFlightIcao = nil
+            tapPin(match)
+            return
+        }
+        pendingFlightIcao = key
+        refresh()
+    }
+
+    func resolvePendingFlightDeepLink(in flights: [Flight]) {
+        guard let key = pendingFlightIcao else { return }
+        guard let match = flights.first(where: { $0.icao24.lowercased() == key }) else { return }
+        pendingFlightIcao = nil
+        tapPin(match)
+    }
+
     func tapPin(_ f:Flight) {
+        if quickFlight?.id == f.id, !showBoard, detailFlight == nil {
+            dismissFlightSelection()
+            return
+        }
         // Zoom in so plane is visible in top portion of map (above the quick card)
         let span = 0.22
         let latShift = span * 0.30   // shift center south → plane appears in upper 60%
-        withAnimation(.spring(response:1.4, dampingFraction:0.75)) {
+        withAnimation(.spring(response: 0.45, dampingFraction: 0.82)) {
             region = MKCoordinateRegion(
                 center: CLLocationCoordinate2D(
                     latitude:  f.latitude  - latShift,
@@ -919,22 +1494,108 @@ struct ContentView:View {
                 span: MKCoordinateSpan(latitudeDelta:span, longitudeDelta:span))
         }
         withAnimation(.spring(response:0.42,dampingFraction:0.82)) {
-            quickFlight = (quickFlight?.id==f.id) ? nil : f
+            showBoard = false
+            detailFlight = nil
+            quickFlight = f
         }
-        fetchRoute(f); aircraft.fetch(f.icao24)
+        fetchRoute(f)
+        aircraft.fetch(f)
+        AirlineLogo.prefetch(callsign: f.callsign)
+    }
+
+    /// Close quick card / detail and zoom back out to show nearby traffic.
+    func dismissFlightSelection() {
+        withAnimation(.spring(response: 0.42, dampingFraction: 0.82)) {
+            quickFlight = nil
+        }
+        detailFlight = nil
+        zoomOutToOverview()
+    }
+
+    func zoomOutToOverview() {
+        let center = userCoord
+            ?? location.recentLocation()?.coordinate
+            ?? region.center
+        if service.flights.isEmpty {
+            withAnimation(.easeInOut(duration: 0.5)) {
+                region = MKCoordinateRegion(
+                    center: center,
+                    span: MKCoordinateSpan(latitudeDelta: 1.4, longitudeDelta: 1.4))
+            }
+            return
+        }
+        zoomToClosest5(center)
     }
 
     func refresh() {
-        quickFlight   = nil
-        hasZoomedOnce = false   // re-triggers zoom-to-5 on next flight load
-        // Get fresh location first so userCoord is set before flights arrive
-        location.requestOnce { loc in
-            userCoord = loc.coordinate
-            service.fetchFlights(latitude: loc.coordinate.latitude,
-                                 longitude: loc.coordinate.longitude)
-        } onError: { _ in
-            let c = userCoord ?? region.center
-            service.fetchFlights(latitude: c.latitude, longitude: c.longitude)
+        quickFlight = nil
+        service.errorMessage = nil
+        awaitingLocation = userCoord == nil
+        fetchFlightsNearUser()
+        location.requestOnce(
+            onLocation: { loc in
+                awaitingLocation = false
+                applyUserLocation(loc)
+            },
+            onError: { message in
+                awaitingLocation = false
+                if userCoord == nil {
+                    service.errorMessage = message
+                }
+            }
+        )
+    }
+
+    private func bootstrapFromCachedLocation() {
+        if let recent = location.recentLocation() {
+            SharedWidgetLocation.save(recent, reloadWidget: false)
+            beginFlightScan(at: recent.coordinate, animateMap: true)
+            awaitingLocation = false
+            return
+        }
+        if let coord = SharedWidgetLocation.coordinate() {
+            beginFlightScan(at: coord, animateMap: true)
+            awaitingLocation = false
+        }
+    }
+
+    private func beginFlightScan(at coord: CLLocationCoordinate2D, animateMap: Bool) {
+        userCoord = coord
+        if animateMap {
+            withAnimation(.easeInOut(duration: 0.4)) {
+                region = MKCoordinateRegion(
+                    center: coord,
+                    span: MKCoordinateSpan(latitudeDelta: 1.4, longitudeDelta: 1.4))
+            }
+        }
+        service.fetchFlights(latitude: coord.latitude, longitude: coord.longitude)
+    }
+
+    /// Centers the map on a fresh GPS fix and reloads flights around it.
+    private func applyUserLocation(_ loc: CLLocation) {
+        SharedWidgetLocation.save(loc)
+        userCoord = loc.coordinate
+        service.fetchFlights(latitude: loc.coordinate.latitude,
+                             longitude: loc.coordinate.longitude)
+
+        let previous = region.center
+        let movedFar = CLLocation(latitude: previous.latitude, longitude: previous.longitude)
+            .distance(from: loc) > 1500
+        guard movedFar || !didCenterOnUser else { return }
+        didCenterOnUser = true
+        hasZoomedOnce = false
+        withAnimation(.easeInOut(duration: 0.4)) {
+            region = MKCoordinateRegion(
+                center: loc.coordinate,
+                span: MKCoordinateSpan(latitudeDelta: 1.4, longitudeDelta: 1.4))
+        }
+    }
+
+    /// Flights at cached GPS / map center — does not wait for a new GPS fix.
+    /// Never claims the default map center as the user's real location.
+    private func fetchFlightsNearUser() {
+        if let coord = userCoord ?? location.recentLocation()?.coordinate ?? SharedWidgetLocation.coordinate() {
+            beginFlightScan(at: coord, animateMap: false)
         }
     }
 
@@ -947,7 +1608,7 @@ struct ContentView:View {
         guard !top.isEmpty else { return }
         let lats=top.map(\.latitude)+[coord.latitude]
         let lons=top.map(\.longitude)+[coord.longitude]
-        withAnimation(.easeInOut(duration:1.9)) {
+        withAnimation(.easeInOut(duration: 0.55)) {
             region=MKCoordinateRegion(
                 center:CLLocationCoordinate2D(latitude:(lats.min()!+lats.max()!)/2,
                                               longitude:(lons.min()!+lons.max()!)/2),
@@ -957,20 +1618,46 @@ struct ContentView:View {
         }
     }
 
-    func fetchRoute(_ f:Flight) {
-        guard routes[f.icao24]==nil else { return }
-        let end=Int(Date().timeIntervalSince1970), begin=end-86400
-        guard let url=URL(string:"https://opensky-network.org/api/flights/aircraft?icao24=\(f.icao24)&begin=\(begin)&end=\(end)")
-        else { return }
-        URLSession.shared.dataTask(with:url) { data,resp,_ in
-            guard let data=data,(resp as? HTTPURLResponse)?.statusCode==200,
-                  let arr=try? JSONSerialization.jsonObject(with:data) as? [[String:Any]],
-                  let last=arr.last else { return }
-            let d=displayAP(last["estDepartureAirport"] as? String).code
-            let a=displayAP(last["estArrivalAirport"]   as? String).code
-            guard d != "???" || a != "???" else { return }
-            DispatchQueue.main.async { self.routes[f.icao24]=RouteData(dep:d,arr:a) }
-        }.resume()
+    func fetchRoute(_ f: Flight) {
+        let icao = f.icao24
+        if let existing = routes[icao], knownRouteEnds(existing) != nil { return }
+
+        Task {
+            guard let airports = await RouteLookupService.fetch(icao24: icao, callsign: f.callsign) else { return }
+            let d = displayAP(airports.departure).code
+            let a = displayAP(airports.arrival).code
+            guard isKnownAirportCode(d), isKnownAirportCode(a) else { return }
+            await MainActor.run {
+                routes[icao] = RouteData(dep: d, arr: a)
+                publishWidgetBoard(reload: false)
+            }
+        }
+    }
+
+    /// Keep the Home Screen board populated while the app is closed.
+    private func publishWidgetBoard(reload: Bool) {
+        if service.isLoading { return }
+        if service.errorMessage != nil, service.flights.isEmpty {
+            if reload { WidgetBoardStore.reloadTimelines() }
+            return
+        }
+        guard service.lastUpdate != nil || !service.flights.isEmpty else {
+            if reload { WidgetBoardStore.reloadTimelines() }
+            return
+        }
+        guard let coord = userCoord
+            ?? location.recentLocation()?.coordinate
+            ?? SharedWidgetLocation.coordinate(maxAge: .infinity)
+        else {
+            if reload { WidgetBoardStore.reloadTimelines() }
+            return
+        }
+        WidgetBoardStore.publish(
+            flights: service.flights,
+            routes: routes,
+            near: coord,
+            reload: reload
+        )
     }
 }
 

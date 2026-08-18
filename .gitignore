@@ -1,0 +1,20 @@
+# API keys (use Config/Secrets.xcconfig.example as template)
+Config/Secrets.xcconfig
+
+# Xcode user state
+*.xcuserstate
+xcuserdata/
+
+# Local build products
+DerivedData/
+build/
+.build_check/
+.ipa_build/
+
+# Editor
+.cursor/
+.claude/
+
+# Python
+__pycache__/
+*.pyc

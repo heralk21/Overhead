@@ -10,7 +10,6 @@
 		206B7C142FB68CA600940CD8 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 206B7C132FB68CA600940CD8 /* WidgetKit.framework */; };
 		206B7C162FB68CA600940CD8 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 206B7C152FB68CA600940CD8 /* SwiftUI.framework */; };
 		206B7C272FB68CA900940CD8 /* FlightTrackerWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 206B7C112FB68CA600940CD8 /* FlightTrackerWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-		206B7C4A2FB68DF100940CD8 /* FlightTrackerWatch Watch App.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = 206B7C402FB68DEF00940CD8 /* FlightTrackerWatch Watch App.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -20,13 +19,6 @@
 			proxyType = 1;
 			remoteGlobalIDString = 206B7C102FB68CA600940CD8;
 			remoteInfo = FlightTrackerWidgetExtension;
-		};
-		206B7C482FB68DF100940CD8 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 206B7BF72FB68C5F00940CD8 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = 206B7C3F2FB68DEF00940CD8;
-			remoteInfo = "FlightTrackerWatch Watch App";
 		};
 /* End PBXContainerItemProxy section */
 
@@ -48,7 +40,6 @@
 			dstPath = "$(CONTENTS_FOLDER_PATH)/Watch";
 			dstSubfolderSpec = 16;
 			files = (
-				206B7C4A2FB68DF100940CD8 /* FlightTrackerWatch Watch App.app in Embed Watch Content */,
 			);
 			name = "Embed Watch Content";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -60,8 +51,9 @@
 		206B7C112FB68CA600940CD8 /* FlightTrackerWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = FlightTrackerWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		206B7C132FB68CA600940CD8 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
 		206B7C152FB68CA600940CD8 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
-		206B7C312FB68D4D00940CD8 /* FlightTracker.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = FlightTracker.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		206B7C402FB68DEF00940CD8 /* FlightTrackerWatch Watch App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "FlightTrackerWatch Watch App.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		206B7C612FB6A00000940CD8 /* Secrets.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Secrets.xcconfig; sourceTree = "<group>"; };
+		206B7C632FB6A00000940CD8 /* Secrets.xcconfig.example */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Secrets.xcconfig.example; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -75,27 +67,35 @@
 		206B7C5D2FB692B900940CD8 /* Exceptions for "flight-tracker" folder in "FlightTrackerWidgetExtension" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
+				AeroDataBoxRouteService.swift,
+				AircraftIcon.swift,
+				AirlineLEDCache.swift,
+				APIConfiguration.swift,
 				FlightData.swift,
+				FlightDeepLink.swift,
+				FlightDisplay.swift,
 				FlightService.swift,
+				OpenSkyAuth.swift,
+				OpenSkyRouteService.swift,
+				RouteData.swift,
+				RouteLookupService.swift,
+				SharedWidgetLocation.swift,
+				WidgetBoardStore.swift,
+				WidgetFlightCache.swift,
+				WidgetLocationFetcher.swift,
 			);
 			target = 206B7C102FB68CA600940CD8 /* FlightTrackerWidgetExtension */;
-		};
-		206B7C5E2FB692B900940CD8 /* Exceptions for "flight-tracker" folder in "FlightTracker" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				ContentView.swift,
-				flight_trackerApp.swift,
-				FlightData.swift,
-				FlightService.swift,
-				LocationManager.swift,
-			);
-			target = 206B7C302FB68D4D00940CD8 /* FlightTracker */;
 		};
 		206B7C5F2FB692B900940CD8 /* Exceptions for "flight-tracker" folder in "FlightTrackerWatch Watch App" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
+				AeroDataBoxRouteService.swift,
+				APIConfiguration.swift,
 				FlightData.swift,
 				FlightService.swift,
+				OpenSkyAuth.swift,
+				OpenSkyRouteService.swift,
+				RouteLookupService.swift,
 			);
 			target = 206B7C3F2FB68DEF00940CD8 /* FlightTrackerWatch Watch App */;
 		};
@@ -106,7 +106,6 @@
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
 				206B7C5D2FB692B900940CD8 /* Exceptions for "flight-tracker" folder in "FlightTrackerWidgetExtension" target */,
-				206B7C5E2FB692B900940CD8 /* Exceptions for "flight-tracker" folder in "FlightTracker" target */,
 				206B7C5F2FB692B900940CD8 /* Exceptions for "flight-tracker" folder in "FlightTrackerWatch Watch App" target */,
 			);
 			path = "flight-tracker";
@@ -144,13 +143,6 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		206B7C2E2FB68D4D00940CD8 /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 		206B7C3D2FB68DEF00940CD8 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -164,6 +156,7 @@
 		206B7BF62FB68C5F00940CD8 = {
 			isa = PBXGroup;
 			children = (
+				206B7C622FB6A00000940CD8 /* Config */,
 				206B7C012FB68C5F00940CD8 /* flight-tracker */,
 				206B7C172FB68CA600940CD8 /* FlightTrackerWidget */,
 				206B7C412FB68DEF00940CD8 /* FlightTrackerWatch Watch App */,
@@ -177,7 +170,6 @@
 			children = (
 				206B7BFF2FB68C5F00940CD8 /* flight-tracker.app */,
 				206B7C112FB68CA600940CD8 /* FlightTrackerWidgetExtension.appex */,
-				206B7C312FB68D4D00940CD8 /* FlightTracker.app */,
 				206B7C402FB68DEF00940CD8 /* FlightTrackerWatch Watch App.app */,
 			);
 			name = Products;
@@ -190,6 +182,15 @@
 				206B7C152FB68CA600940CD8 /* SwiftUI.framework */,
 			);
 			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		206B7C622FB6A00000940CD8 /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				206B7C612FB6A00000940CD8 /* Secrets.xcconfig */,
+				206B7C632FB6A00000940CD8 /* Secrets.xcconfig.example */,
+			);
+			path = Config;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -209,7 +210,6 @@
 			);
 			dependencies = (
 				206B7C262FB68CA900940CD8 /* PBXTargetDependency */,
-				206B7C492FB68DF100940CD8 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				206B7C012FB68C5F00940CD8 /* flight-tracker */,
@@ -242,25 +242,6 @@
 			productName = FlightTrackerWidgetExtension;
 			productReference = 206B7C112FB68CA600940CD8 /* FlightTrackerWidgetExtension.appex */;
 			productType = "com.apple.product-type.app-extension";
-		};
-		206B7C302FB68D4D00940CD8 /* FlightTracker */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = 206B7C392FB68D4F00940CD8 /* Build configuration list for PBXNativeTarget "FlightTracker" */;
-			buildPhases = (
-				206B7C2D2FB68D4D00940CD8 /* Sources */,
-				206B7C2E2FB68D4D00940CD8 /* Frameworks */,
-				206B7C2F2FB68D4D00940CD8 /* Resources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-			);
-			name = FlightTracker;
-			packageProductDependencies = (
-			);
-			productName = FlightTracker;
-			productReference = 206B7C312FB68D4D00940CD8 /* FlightTracker.app */;
-			productType = "com.apple.product-type.application";
 		};
 		206B7C3F2FB68DEF00940CD8 /* FlightTrackerWatch Watch App */ = {
 			isa = PBXNativeTarget;
@@ -300,9 +281,6 @@
 					206B7C102FB68CA600940CD8 = {
 						CreatedOnToolsVersion = 26.3;
 					};
-					206B7C302FB68D4D00940CD8 = {
-						CreatedOnToolsVersion = 26.3;
-					};
 					206B7C3F2FB68DEF00940CD8 = {
 						CreatedOnToolsVersion = 26.3;
 					};
@@ -324,7 +302,6 @@
 			targets = (
 				206B7BFE2FB68C5F00940CD8 /* flight-tracker */,
 				206B7C102FB68CA600940CD8 /* FlightTrackerWidgetExtension */,
-				206B7C302FB68D4D00940CD8 /* FlightTracker */,
 				206B7C3F2FB68DEF00940CD8 /* FlightTrackerWatch Watch App */,
 			);
 		};
@@ -339,13 +316,6 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		206B7C0F2FB68CA600940CD8 /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		206B7C2F2FB68D4D00940CD8 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -376,13 +346,6 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		206B7C2D2FB68D4D00940CD8 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 		206B7C3C2FB68DEF00940CD8 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -398,16 +361,12 @@
 			target = 206B7C102FB68CA600940CD8 /* FlightTrackerWidgetExtension */;
 			targetProxy = 206B7C252FB68CA900940CD8 /* PBXContainerItemProxy */;
 		};
-		206B7C492FB68DF100940CD8 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = 206B7C3F2FB68DEF00940CD8 /* FlightTrackerWatch Watch App */;
-			targetProxy = 206B7C482FB68DF100940CD8 /* PBXContainerItemProxy */;
-		};
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		206B7C082FB68C6100940CD8 /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 206B7C612FB6A00000940CD8 /* Secrets.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
@@ -471,6 +430,7 @@
 		};
 		206B7C092FB68C6100940CD8 /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 206B7C612FB6A00000940CD8 /* Secrets.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
@@ -530,11 +490,19 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "flight-tracker/Overhead.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = WU9QUY73F9;
+				ENABLE_DEBUG_DYLIB = NO;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = OverheadURLScheme.plist;
+				INFOPLIST_KEY_AERO_DATABOX_API_KEY = "$(AERO_DATABOX_API_KEY)";
+				INFOPLIST_KEY_CFBundleDisplayName = Overhead;
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Overhead uses your location to show aircraft flying near you.";
+				INFOPLIST_KEY_OPEN_SKY_CLIENT_ID = "$(OPEN_SKY_CLIENT_ID)";
+				INFOPLIST_KEY_OPEN_SKY_CLIENT_SECRET = "$(OPEN_SKY_CLIENT_SECRET)";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -562,11 +530,18 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "flight-tracker/Overhead.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = WU9QUY73F9;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = OverheadURLScheme.plist;
+				INFOPLIST_KEY_AERO_DATABOX_API_KEY = "$(AERO_DATABOX_API_KEY)";
+				INFOPLIST_KEY_CFBundleDisplayName = Overhead;
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Overhead uses your location to show aircraft flying near you.";
+				INFOPLIST_KEY_OPEN_SKY_CLIENT_ID = "$(OPEN_SKY_CLIENT_ID)";
+				INFOPLIST_KEY_OPEN_SKY_CLIENT_SECRET = "$(OPEN_SKY_CLIENT_SECRET)";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -594,13 +569,16 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CODE_SIGN_ENTITLEMENTS = FlightTrackerWidget/FlightTrackerWidget.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = WU9QUY73F9;
+				ENABLE_DEBUG_DYLIB = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = FlightTrackerWidget/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = FlightTrackerWidget;
+				INFOPLIST_KEY_CFBundleDisplayName = "Overhead Board";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Shows flights near your location on the home screen.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -624,13 +602,15 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CODE_SIGN_ENTITLEMENTS = FlightTrackerWidget/FlightTrackerWidget.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = WU9QUY73F9;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = FlightTrackerWidget/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = FlightTrackerWidget;
+				INFOPLIST_KEY_CFBundleDisplayName = "Overhead Board";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Shows flights near your location on the home screen.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -649,70 +629,6 @@
 			};
 			name = Release;
 		};
-		206B7C3A2FB68D4F00940CD8 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = WU9QUY73F9;
-				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
-				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-				);
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "HK.flight-tracker.FlightTracker";
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				STRING_CATALOG_GENERATE_SYMBOLS = YES;
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
-			};
-			name = Debug;
-		};
-		206B7C3B2FB68D4F00940CD8 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = WU9QUY73F9;
-				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
-				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-				);
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "HK.flight-tracker.FlightTracker";
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				STRING_CATALOG_GENERATE_SYMBOLS = YES;
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
-			};
-			name = Release;
-		};
 		206B7C4C2FB68DF100940CD8 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -721,9 +637,14 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = WU9QUY73F9;
+				ENABLE_DEBUG_DYLIB = NO;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_AERO_DATABOX_API_KEY = "$(AERO_DATABOX_API_KEY)";
 				INFOPLIST_KEY_CFBundleDisplayName = FlightTrackerWatch;
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Flight Tracker uses your location to show aircraft flying near you.";
+				INFOPLIST_KEY_OPEN_SKY_CLIENT_ID = "$(OPEN_SKY_CLIENT_ID)";
+				INFOPLIST_KEY_OPEN_SKY_CLIENT_SECRET = "$(OPEN_SKY_CLIENT_SECRET)";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
 				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = "HK.flight-tracker";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -756,7 +677,11 @@
 				DEVELOPMENT_TEAM = WU9QUY73F9;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_AERO_DATABOX_API_KEY = "$(AERO_DATABOX_API_KEY)";
 				INFOPLIST_KEY_CFBundleDisplayName = FlightTrackerWatch;
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Flight Tracker uses your location to show aircraft flying near you.";
+				INFOPLIST_KEY_OPEN_SKY_CLIENT_ID = "$(OPEN_SKY_CLIENT_ID)";
+				INFOPLIST_KEY_OPEN_SKY_CLIENT_SECRET = "$(OPEN_SKY_CLIENT_SECRET)";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
 				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = "HK.flight-tracker";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -805,15 +730,6 @@
 			buildConfigurations = (
 				206B7C2A2FB68CA900940CD8 /* Debug */,
 				206B7C2B2FB68CA900940CD8 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
-		206B7C392FB68D4F00940CD8 /* Build configuration list for PBXNativeTarget "FlightTracker" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				206B7C3A2FB68D4F00940CD8 /* Debug */,
-				206B7C3B2FB68D4F00940CD8 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

@@ -1,0 +1,66 @@
+{
+  "screens": [
+    {
+      "file": "figma-import/screens/reel-01-map-idle.svg",
+      "title": "reel-01-map-idle.svg"
+    },
+    {
+      "file": "figma-import/screens/reel-02-map-scanning.svg",
+      "title": "reel-02-map-scanning.svg"
+    },
+    {
+      "file": "figma-import/screens/reel-03-quick-card.svg",
+      "title": "reel-03-quick-card.svg"
+    },
+    {
+      "file": "figma-import/screens/reel-04-detail-loaded.svg",
+      "title": "reel-04-detail-loaded.svg"
+    },
+    {
+      "file": "figma-import/screens/reel-05-board-open.svg",
+      "title": "reel-05-board-open.svg"
+    },
+    {
+      "file": "figma-import/screens/reel-07-map-error.svg",
+      "title": "reel-07-map-error.svg"
+    }
+  ],
+  "cinematic": [
+    {
+      "file": "figma-import/cinematic/cine-01-hook.svg",
+      "title": "cine-01-hook.svg"
+    },
+    {
+      "file": "figma-import/cinematic/cine-02-scan-split.svg",
+      "title": "cine-02-scan-split.svg"
+    },
+    {
+      "file": "figma-import/cinematic/cine-03-identify.svg",
+      "title": "cine-03-identify.svg"
+    },
+    {
+      "file": "figma-import/cinematic/cine-04-track-split.svg",
+      "title": "cine-04-track-split.svg"
+    },
+    {
+      "file": "figma-import/cinematic/cine-05-detail-callout.svg",
+      "title": "cine-05-detail-callout.svg"
+    },
+    {
+      "file": "figma-import/cinematic/cine-06-board-focus.svg",
+      "title": "cine-06-board-focus.svg"
+    },
+    {
+      "file": "figma-import/cinematic/cine-07-share-imessage.svg",
+      "title": "cine-07-share-imessage.svg"
+    },
+    {
+      "file": "figma-import/cinematic/cine-08-hero-ticket.svg",
+      "title": "cine-08-hero-ticket.svg"
+    },
+    {
+      "file": "figma-import/cinematic/cine-09-outro.svg",
+      "title": "cine-09-outro.svg"
+    }
+  ]
+}

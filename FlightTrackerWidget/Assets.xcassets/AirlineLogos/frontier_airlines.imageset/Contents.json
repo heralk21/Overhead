@@ -1,0 +1,12 @@
+{
+  "images" : [
+    {
+      "filename" : "frontier_airlines.png",
+      "idiom" : "universal"
+    }
+  ],
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  }
+}

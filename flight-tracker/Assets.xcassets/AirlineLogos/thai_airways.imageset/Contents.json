@@ -1,0 +1,12 @@
+{
+  "images" : [
+    {
+      "filename" : "thai_airways.png",
+      "idiom" : "universal"
+    }
+  ],
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "images" : [
+    {
+      "filename" : "cathay_pacific.png",
+      "idiom" : "universal"
+    }
+  ],
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  }
+}

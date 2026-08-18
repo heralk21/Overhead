@@ -177,28 +177,21 @@ final class WatchRouteStore: ObservableObject {  // ✓ Combine imported
     static let shared = WatchRouteStore()
     @Published var routes: [String: (dep: String, arr: String)] = [:]  // ✓ Combine imported
 
-    func fetch(icao24: String) {
-        guard routes[icao24] == nil else { return }
-        let end = Int(Date().timeIntervalSince1970), begin = end - 86400
-        guard let url = URL(string:
-            "https://opensky-network.org/api/flights/aircraft?icao24=\(icao24)&begin=\(begin)&end=\(end)")
-        else { return }
-
-        URLSession.shared.dataTask(with: url) { [weak self] data, response, _ in
-            guard let data = data,
-                  let http = response as? HTTPURLResponse, http.statusCode == 200,
-                  let list = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
-                  let last = list.last
-            else { return }
-
-            let dep = displayAP(last["estDepartureAirport"] as? String)
-            let arr = displayAP(last["estArrivalAirport"]   as? String)
+    func fetch(icao24: String, callsign: String = "") {
+        if let existing = routes[icao24], existing.arr != "???" { return }
+        Task { [weak self] in
+            guard let airports = await RouteLookupService.fetch(icao24: icao24, callsign: callsign) else { return }
+            let dep = displayAP(airports.departure)
+            let arr = displayAP(airports.arrival)
             guard dep != "???" || arr != "???" else { return }
-
-            DispatchQueue.main.async {
-                self?.routes[icao24] = (dep: dep, arr: arr)
+            await MainActor.run {
+                let prev = self?.routes[icao24]
+                self?.routes[icao24] = (
+                    dep: dep != "???" ? dep : (prev?.dep ?? "???"),
+                    arr: arr != "???" ? arr : (prev?.arr ?? "???")
+                )
             }
-        }.resume()
+        }
     }
 }
 
@@ -248,7 +241,7 @@ private func buildWatch(
         let route = String("\(rt.dep) > \(rt.arr)".prefix(9))
         b.cTxt(route, 22, .gn)
     } else {
-        let status = String(f.altitudeStatus.uppercased().prefix(9))
+        let status = String(f.phase.compactName.prefix(9))
         b.cTxt(status, 22, .dm)
     }
     b.hline(30, .xx)
@@ -301,7 +294,7 @@ struct ContentView: View {
         // [Flight] isn't Equatable so onChange(of:) won't compile
         .onReceive(service.$flights) { fl in
             if let top = fl.first {
-                store.fetch(icao24: top.icao24)
+                store.fetch(icao24: top.icao24, callsign: top.callsign)
             }
         }
     }

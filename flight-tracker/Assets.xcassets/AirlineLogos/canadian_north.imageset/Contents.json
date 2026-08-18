@@ -1,0 +1,12 @@
+{
+  "images" : [
+    {
+      "filename" : "canadian_north.png",
+      "idiom" : "universal"
+    }
+  ],
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  }
+}

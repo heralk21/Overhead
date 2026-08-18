@@ -1,0 +1,12 @@
+{
+  "images" : [
+    {
+      "filename" : "virgin_atlantic.png",
+      "idiom" : "universal"
+    }
+  ],
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  }
+}

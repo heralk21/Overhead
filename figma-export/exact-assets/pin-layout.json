@@ -1,0 +1,186 @@
+{
+  "map-idle": {
+    "map": "/Users/heralkumar/Desktop/ios app - flight tracker/flight-tracker/figma-export/exact-assets/maps/map-idle-mapkit.png",
+    "pins": [
+      {
+        "x": 230.7,
+        "y": 395.6,
+        "w": 23,
+        "h": 35,
+        "n": 243,
+        "heading": 45,
+        "asset": "ac_b737",
+        "selected": false
+      },
+      {
+        "x": 153.8,
+        "y": 567.3,
+        "w": 16,
+        "h": 19,
+        "n": 112,
+        "heading": 30,
+        "asset": "ac_b737",
+        "selected": false
+      },
+      {
+        "x": 190.0,
+        "y": 421.6,
+        "w": 19,
+        "h": 15,
+        "n": 110,
+        "heading": 200,
+        "asset": "ac_dash8",
+        "selected": false
+      },
+      {
+        "x": 176.0,
+        "y": 602.2,
+        "w": 15,
+        "h": 18,
+        "n": 106,
+        "heading": 25,
+        "asset": "ac_a321",
+        "selected": false
+      },
+      {
+        "x": 203.0,
+        "y": 335.8,
+        "w": 13,
+        "h": 17,
+        "n": 103,
+        "heading": 50,
+        "asset": "ac_a320",
+        "selected": false
+      },
+      {
+        "x": 169.2,
+        "y": 325.4,
+        "w": 18,
+        "h": 16,
+        "n": 102,
+        "heading": 55,
+        "asset": "ac_b737",
+        "selected": false
+      },
+      {
+        "x": 97.6,
+        "y": 649.9,
+        "w": 14,
+        "h": 18,
+        "n": 101,
+        "heading": 210,
+        "asset": "ac_citation",
+        "selected": false
+      },
+      {
+        "x": 202.2,
+        "y": 575.3,
+        "w": 22,
+        "h": 23,
+        "n": 86,
+        "heading": 35,
+        "asset": "ac_b777",
+        "selected": false
+      },
+      {
+        "x": 243.4,
+        "y": 195.5,
+        "w": 16,
+        "h": 15,
+        "n": 69,
+        "heading": 40,
+        "asset": "ac_b737",
+        "selected": false
+      },
+      {
+        "x": 132.8,
+        "y": 595.6,
+        "w": 16,
+        "h": 15,
+        "n": 39,
+        "heading": 30,
+        "asset": "ac_b737",
+        "selected": false
+      },
+      {
+        "x": 47.2,
+        "y": 825.1,
+        "w": 8,
+        "h": 10,
+        "n": 29,
+        "heading": 45,
+        "asset": "ac_b737",
+        "selected": false
+      }
+    ],
+    "pin_count": 11
+  },
+  "quick": {
+    "map": "/Users/heralkumar/Desktop/ios app - flight tracker/flight-tracker/figma-export/exact-assets/maps/quick-mapkit.png",
+    "pins": [
+      {
+        "x": 200.6,
+        "y": 265.1,
+        "w": 24,
+        "h": 23,
+        "n": 138,
+        "heading": 47,
+        "asset": "ac_b737",
+        "selected": true
+      }
+    ],
+    "pin_count": 1
+  },
+  "detail": {
+    "map": "/Users/heralkumar/Desktop/ios app - flight tracker/flight-tracker/figma-export/exact-assets/maps/detail-mapkit.png",
+    "pins": [
+      {
+        "x": 200.6,
+        "y": 265.1,
+        "w": 24,
+        "h": 23,
+        "n": 138,
+        "heading": 47,
+        "asset": "ac_b737",
+        "selected": true
+      }
+    ],
+    "pin_count": 1
+  },
+  "board": {
+    "map": "/Users/heralkumar/Desktop/ios app - flight tracker/flight-tracker/figma-export/exact-assets/maps/board-mapkit.png",
+    "pins": [
+      {
+        "x": 120,
+        "y": 90,
+        "heading": 30,
+        "asset": "ac_b737",
+        "selected": false,
+        "w": 20,
+        "h": 20,
+        "n": 80
+      },
+      {
+        "x": 260,
+        "y": 140,
+        "heading": 55,
+        "asset": "ac_a320",
+        "selected": false,
+        "w": 20,
+        "h": 20,
+        "n": 80
+      },
+      {
+        "x": 180,
+        "y": 160,
+        "heading": 200,
+        "asset": "ac_dash8",
+        "selected": false,
+        "w": 20,
+        "h": 20,
+        "n": 80
+      }
+    ],
+    "pin_count": 3
+  }
+}

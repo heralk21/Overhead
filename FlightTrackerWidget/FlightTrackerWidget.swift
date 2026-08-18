@@ -1,19 +1,8 @@
 import WidgetKit
 import SwiftUI
 import CoreLocation
-import AppIntents
-import CoreGraphics
-import UIKit
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-//  LED MATRIX FLIGHT WALL · AUTO-FETCH AIRLINE LOGOS
-//
-//  Pipeline: callsign → ICAO → IATA → fetch PNG from API →
-//            cache locally → CGImage pixel sampling →
-//            nearest-neighbor downscale → LED bitmap → Canvas render
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-// MARK: ── 5x7 BITMAP FONT ──────────────────────────────────────────
+// LED matrix board widget — layout matched to airport departures inspo.
 
 private let FONT: [Character: [UInt8]] = [
     " ":[0,0,0,0,0,0,0],
@@ -35,462 +24,577 @@ private let FONT: [Character: [UInt8]] = [
     "4":[2,6,10,18,31,2,2],    "5":[31,16,30,1,1,17,14],
     "6":[6,8,16,30,17,17,14],  "7":[31,1,2,4,8,8,8],
     "8":[14,17,17,14,17,17,14],"9":[14,17,17,15,1,2,12],
-    ".":[0,0,0,0,0,4,4],       ":":[0,4,4,0,4,4,0],
-    "+":[0,4,4,31,4,4,0],      "-":[0,0,0,31,0,0,0],
+    ".":[0,0,0,0,0,4,4],       "-":[0,0,0,31,0,0,0],
 ]
 
-// MARK: ── LED COLOR + BUFFER ────────────────────────────────────────
+private let glyphW = 6
+private let glyphH = 7
+private let rowStep = glyphH + 2
+/// Blank LED rows between aircraft type and status block.
+private let sectionGap = 4
 
 struct LC {
     let r: Double, g: Double, b: Double
     var color: Color { Color(red: r, green: g, blue: b) }
-    var glow: Color { Color(red: r, green: g, blue: b).opacity(0.22) }
-    static let wh = LC(r:0.92,g:0.93,b:0.98)
-    static let cy = LC(r:0.40,g:0.78,b:0.98)
-    static let dm = LC(r:0.45,g:0.50,b:0.58)
+    var glow: Color { color.opacity(0.20) }
+    static let wh = LC(r: 0.94, g: 0.95, b: 1.0)
+    static let cy = LC(r: 0.45, g: 0.82, b: 1.0)
+    static let dm = LC(r: 0.22, g: 0.24, b: 0.28)
+    static let climb = LC(r: 0.38, g: 0.82, b: 0.58)
+    static let coral = LC(r: 0.92, g: 0.28, b: 0.28)
 }
 
-struct LP { var c: LC = LC(r:0,g:0,b:0); var on = false }
+private func statusLC(for flight: Flight) -> LC {
+    let rgb = flight.statusLEDRGB
+    return LC(r: rgb.r, g: rgb.g, b: rgb.b)
+}
 
-class LB {
-    let w: Int, h: Int; var px: [[LP]]
+private func brandLC(callsign: String) -> LC {
+    let rgb = AirlineLEDCache.accessibleBrandRGB(callsign: callsign)
+    return LC(r: rgb.r, g: rgb.g, b: rgb.b)
+}
+
+private func textWidth(_ text: String) -> Int { text.count * glyphW }
+
+struct LP { var c = LC(r: 0, g: 0, b: 0); var on = false }
+
+final class LB {
+    let w: Int, h: Int
+    var px: [[LP]]
+
     init(_ w: Int, _ h: Int) {
         self.w = w; self.h = h
         px = .init(repeating: .init(repeating: LP(), count: w), count: h)
+        for y in 0..<h {
+            for x in 0..<w {
+                px[y][x] = LP(c: .dm, on: true)
+            }
+        }
     }
+
     func set(_ x: Int, _ y: Int, _ c: LC) {
-        guard x>=0,x<w,y>=0,y<h else { return }
-        px[y][x] = LP(c:c, on:true)
+        guard x >= 0, x < w, y >= 0, y < h else { return }
+        px[y][x] = LP(c: c, on: true)
     }
-    func txt(_ s: String, _ x: Int, _ y: Int, _ c: LC) {
+
+    func fit(_ text: String, maxChars: Int) -> String {
+        String(text.prefix(max(0, maxChars)))
+    }
+
+    @discardableResult
+    func txt(_ s: String, _ x: Int, _ y: Int, _ c: LC) -> Int {
+        guard y >= 0, y + glyphH <= h, x < w else { return 0 }
         var cx = x
         for ch in s {
+            if cx + glyphW > w { break }
             if let g = FONT[ch] ?? FONT[Character(ch.uppercased())] {
-                for row in 0..<7 { for col in 0..<5 {
-                    if g[row] & (1<<(4-col)) != 0 { set(cx+col, y+row, c) }
-                }}
-            }; cx += 6
-        }
-    }
-    func line(_ x:Int,_ y:Int,_ l:Int,_ c:LC) { for dx in 0..<l { set(x+dx,y,c) } }
-    func vline(_ x:Int,_ y:Int,_ l:Int,_ c:LC) { for dy in 0..<l { set(x,y+dy,c) } }
-}
-
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-//  ICAO → IATA MAPPING (100+ airlines)
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-private let icaoToIata: [String: String] = [
-    "ACA":"AC","JZA":"QK","WJA":"WS","WEN":"WR","ASA":"AS",
-    "SKW":"OO","UAL":"UA","AAL":"AA","DAL":"DL","SWA":"WN",
-    "HAL":"HA","FFT":"F9","NKS":"NK","BAW":"BA","DLH":"LH",
-    "AFR":"AF","KLM":"KL","UAE":"EK","QFA":"QF","CPA":"CX",
-    "ANA":"NH","JAL":"JL","ROU":"RV","EIN":"EI","ETD":"EY",
-    "SIA":"SQ","THA":"TG","CES":"MU","CCA":"CA","CSN":"CZ",
-    "KAL":"KE","AAR":"OZ","EVA":"BR","CAL":"CI","PAL":"PR",
-    "MAS":"MH","GIA":"GA","SAS":"SK","FIN":"AY","TAP":"TP",
-    "IBE":"IB","AZA":"AZ","THY":"TK","LOT":"LO","CSA":"OK",
-    "AEE":"A3","SVA":"SV","QTR":"QR","AIC":"AI","ETH":"ET",
-    "SAA":"SA","KQA":"KQ","AVA":"AV","LAN":"LA","GLO":"G3",
-    "VOZ":"VA","VIR":"VS","EZY":"U2","RYR":"FR","WZZ":"W6",
-    "JBU":"B6","ENY":"MQ","RPA":"YX","PDT":"PT","CPZ":"OH",
-    "EDV":"9E","GJS":"G7","AJI":"K6","TSC":"TS","PVL":"PB",
-    "POE":"PD","FLE":"BE","TRS":"TP","SWR":"LX","AUA":"OS",
-    "BEL":"SN","SFJ":"7G","SKX":"GQ","PAC":"WP","QXE":"QX",
-]
-
-private let airlineNames: [String: String] = [
-    "ACA":"AIR CANADA","JZA":"AC EXPRESS","WJA":"WESTJET",
-    "ASA":"ALASKA AIR","SKW":"SKYWEST","UAL":"UNITED",
-    "AAL":"AMERICAN","DAL":"DELTA","SWA":"SOUTHWEST",
-    "HAL":"HAWAIIAN","FFT":"FRONTIER","NKS":"SPIRIT",
-    "BAW":"BRITISH AIR","DLH":"LUFTHANSA","AFR":"AIR FRANCE",
-    "KLM":"KLM","UAE":"EMIRATES","QFA":"QANTAS",
-    "CPA":"CATHAY PAC","ANA":"ANA","JAL":"JAPAN AIR",
-    "ROU":"AC ROUGE","SIA":"SINGAPORE","THA":"THAI AIR",
-    "KAL":"KOREAN AIR","EVA":"EVA AIR","RYR":"RYANAIR",
-    "EZY":"EASYJET","WZZ":"WIZZ AIR","JBU":"JETBLUE",
-    "VIR":"VIRGIN ATL","QTR":"QATAR AIR","ETD":"ETIHAD",
-    "SAA":"SOUTH AFRIC","THY":"TURKISH","IBE":"IBERIA",
-    "SWR":"SWISS","AUA":"AUSTRIAN","TAP":"TAP PORT",
-    "SAS":"SAS","FIN":"FINNAIR","TSC":"TRANSAT",
-]
-
-func getAirlineName(_ cs: String) -> String {
-    airlineNames[String(cs.prefix(3)).uppercased()] ?? String(cs.prefix(7))
-}
-
-func getIATA(_ cs: String) -> String? {
-    icaoToIata[String(cs.prefix(3)).uppercased()]
-}
-
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-//  AIRLINE LOGO AUTO-FETCHER + RASTERIZER
-//
-//  1. Check local cache for previously downloaded logo
-//  2. If not cached, download from pics.avs.io (free, no auth)
-//  3. Cache PNG to disk
-//  4. Rasterize: CGImage → 14x14 nearest-neighbor → pixel sample
-//  5. Store LED bitmap in memory cache
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-struct RasterizedLogo {
-    let width: Int
-    let height: Int
-    let pixels: [[LC?]]
-}
-
-final class LogoEngine {
-    static let shared = LogoEngine()
-
-    private var rasterCache: [String: RasterizedLogo] = [:]
-    private let cacheDir: URL
-
-    private init() {
-        let fm = FileManager.default
-        let base = fm.urls(for: .cachesDirectory, in: .userDomainMask).first!
-        cacheDir = base.appendingPathComponent("airline_led_logos")
-        try? fm.createDirectory(at: cacheDir, withIntermediateDirectories: true)
-    }
-
-    /// Get rasterized LED logo synchronously (from memory/disk cache)
-    func getCachedLogo(icao: String, size: Int = 14) -> RasterizedLogo? {
-        // Memory cache
-        if let cached = rasterCache[icao] { return cached }
-
-        // Disk cache → rasterize
-        guard let iata = icaoToIata[icao] else { return nil }
-        let path = cacheDir.appendingPathComponent("\(iata).png")
-        guard let data = try? Data(contentsOf: path),
-              let image = UIImage(data: data),
-              let logo = rasterize(image: image, size: size) else { return nil }
-
-        rasterCache[icao] = logo
-        return logo
-    }
-
-    /// Fetch logo from API and cache to disk (async, call during timeline update)
-    func prefetchLogo(icao: String, completion: @escaping () -> Void) {
-        guard let iata = icaoToIata[icao] else { completion(); return }
-
-        // Already on disk?
-        let path = cacheDir.appendingPathComponent("\(iata).png")
-        if FileManager.default.fileExists(atPath: path.path) {
-            completion(); return
-        }
-
-        // Download from pics.avs.io (free airline logo API, no auth needed)
-        // Returns transparent PNG logos for virtually every airline
-        let url = URL(string: "https://pics.avs.io/200/200/\(iata).png")!
-
-        URLSession.shared.dataTask(with: url) { data, response, _ in
-            defer { completion() }
-            guard let data = data, data.count > 500, // skip tiny error responses
-                  let httpResp = response as? HTTPURLResponse,
-                  httpResp.statusCode == 200,
-                  UIImage(data: data) != nil
-            else { return }
-
-            try? data.write(to: path)
-        }.resume()
-    }
-
-    /// Core rasterizer: UIImage → LED pixel grid
-    func rasterize(image: UIImage, size: Int) -> RasterizedLogo? {
-        guard let cgImage = image.cgImage else { return nil }
-
-        let srcW = cgImage.width, srcH = cgImage.height
-        let aspect = Double(srcW) / Double(srcH)
-        let tW = aspect >= 1.0 ? size : max(1, Int(Double(size) * aspect))
-        let tH = aspect >= 1.0 ? max(1, Int(Double(size) / aspect)) : size
-
-        let bpp = 4, bpr = bpp * tW
-        var pixels = [UInt8](repeating: 0, count: tH * bpr)
-
-        guard let cs = CGColorSpace(name: CGColorSpace.sRGB),
-              let ctx = CGContext(data: &pixels, width: tW, height: tH,
-                                 bitsPerComponent: 8, bytesPerRow: bpr, space: cs,
-                                 bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
-        else { return nil }
-
-        // NEAREST-NEIGHBOR: no smoothing, sharp LED pixels
-        ctx.interpolationQuality = .none
-        ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: tW, height: tH))
-
-        var result: [[LC?]] = []
-        for y in 0..<tH {
-            var row: [LC?] = []
-            for x in 0..<tW {
-                let off = (y * bpr) + (x * bpp)
-                let r = Double(pixels[off]) / 255.0
-                let g = Double(pixels[off+1]) / 255.0
-                let b = Double(pixels[off+2]) / 255.0
-                let a = Double(pixels[off+3]) / 255.0
-
-                if a < 0.25 { row.append(nil) }
-                else if (r+g+b) * a < 0.08 { row.append(nil) }
-                else {
-                    let cr = min(1.0, r / max(a, 0.01))
-                    let cg = min(1.0, g / max(a, 0.01))
-                    let cb = min(1.0, b / max(a, 0.01))
-                    row.append(LC(r: cr, g: cg, b: cb))
+                for row in 0..<glyphH {
+                    for col in 0..<5 where g[row] & (1 << (4 - col)) != 0 {
+                        set(cx + col, y + row, c)
+                    }
                 }
             }
-            result.append(row)
+            cx += glyphW
         }
-        return RasterizedLogo(width: tW, height: tH, pixels: result)
+        return cx - x
+    }
+
+    func hline(_ y: Int, _ x0: Int, _ x1: Int, _ c: LC) {
+        guard y >= 0, y < h else { return }
+        for x in max(0, x0)...min(w - 1, x1) { set(x, y, c) }
     }
 }
 
-// MARK: ── RENDER LOGO INTO LED BUFFER ───────────────────────────────
+// MARK: - Logo
 
-func renderLogo(_ buf: LB, _ logo: RasterizedLogo, _ ox: Int, _ oy: Int) {
-    for y in 0..<logo.height {
-        for x in 0..<logo.width {
-            if let c = logo.pixels[y][x] { buf.set(ox+x, oy+y, c) }
+/// Where to draw a bundled airline logo image on the LED grid (cell coordinates).
+struct LogoPlacement {
+    let asset: String
+    let col: Int
+    let row: Int
+    let size: Int
+}
+
+/// Top-down aircraft model art in the medium widget's right column.
+struct AircraftPlacement {
+    let asset: String
+    let col: Int
+    let row: Int
+    let size: Int
+}
+
+func renderBrandLogo(_ buf: LB, callsign: String, ox: Int, oy: Int, size: Int) {
+    let brand = AirlineLEDCache.brandRGB(callsign: callsign)
+    let c = LC(r: brand.r, g: brand.g, b: brand.b)
+
+    if AirlineLEDCache.prefersTextMark(callsign: callsign),
+       let iata = AirlineLEDCache.iata(from: callsign) {
+        buf.txt(iata, ox + 2, oy + (size - glyphH) / 2, c)
+        return
+    }
+
+    guard let grid = AirlineLEDCache.cachedGrid(callsign: callsign, size: size) else {
+        if let iata = AirlineLEDCache.iata(from: callsign) {
+            buf.txt(iata, ox + 1, oy + (size - glyphH) / 2, c)
+        }
+        return
+    }
+
+    let offX = ox + (size - grid.cols) / 2
+    let offY = oy + (size - grid.rows) / 2
+    for row in 0..<grid.rows {
+        for col in 0..<grid.cols where grid.lit[row * grid.cols + col] {
+            buf.set(offX + col, offY + row, c)
         }
     }
 }
 
-func renderFallback(_ buf: LB, _ icao: String, _ ox: Int, _ oy: Int, _ size: Int) {
-    let cx = ox+size/2, cy = oy+size/2, r = size/2-1
-    for dy in -r...r { for dx in -r...r {
-        if dx*dx+dy*dy <= r*r { buf.set(cx+dx, cy+dy, LC(r:0.20,g:0.45,b:0.85)) }
-    }}
-    buf.txt(String(icao.prefix(2)), cx-5, cy-3, .wh)
+// MARK: - Board layout (inspo: logo | airline · route · type · status)
+
+private struct BoardLines {
+    let airline: String
+    let callsign: String
+    let aircraft: String
+    let status: String
+    let place: String
 }
 
-// MARK: ── BUILD LED WALL BUFFERS ────────────────────────────────────
+private func boardLines(flight: Flight, route: RouteData?, maxChars: Int) -> BoardLines {
+    let footer = FlightLEDCopy.boardFooter(flight: flight, route: route)
+    func clip(_ s: String) -> String { String(s.prefix(maxChars)) }
+    return BoardLines(
+        airline: clip(airlineName(flight.callsign)),
+        callsign: clip(FlightLEDCopy.displayCallsign(for: flight, maxLength: maxChars)),
+        aircraft: clip(FlightLEDCopy.aircraftTypeShort(for: flight)),
+        status: clip(footer.label),
+        place: clip(footer.place)
+    )
+}
 
-func buildWall(_ f: Flight?, _ cnt: Int, _ gw: Int, _ gh: Int) -> LB {
-    let b = LB(gw, gh)
-    let sep = LC(r:0.10,g:0.12,b:0.18)
+private struct BoardLayout {
+    let gw: Int
+    let gh: Int
+    let pitch: CGFloat
+    let logoSize: Int
+    let logoQuarterW: Int
+    let textQuarterW: Int
+    let textColumnW: Int
+    let planeColumnW: Int
+    let planeColumnX: Int
+    let maxChars: Int
+}
 
-    guard let f = f else {
-        b.txt("NO SIGNAL", gw/2-27, gh/2-8, .dm)
-        b.line(8, gh/2-1, gw-16, sep)
-        b.txt("OPEN APP TO SCAN", gw/2-48, gh/2+3, .cy)
-        return b
-    }
-
-    let icao = String(f.callsign.prefix(3)).uppercased()
-    let name = getAirlineName(f.callsign)
-    let logoSize = 14
-    let logoX = 2, logoY = max(2, gh/2 - logoSize/2 - 3)
-
-    // Render real rasterized logo or fallback
-    if let logo = LogoEngine.shared.getCachedLogo(icao: icao, size: logoSize) {
-        renderLogo(b, logo, logoX, logoY)
+private func boardLayout(size: CGSize, reservePlaneColumn: Bool) -> BoardLayout {
+    let pitch: CGFloat = 2.5
+    let gw = max(108, Int(size.width / pitch))
+    let gh = max(52, Int(size.height / pitch))
+    let logoQuarterW = gw / 4
+    let textQuarterW = gw - logoQuarterW
+    let textColumnW: Int
+    let planeColumnW: Int
+    let planeColumnX: Int
+    if reservePlaneColumn {
+        textColumnW = (textQuarterW * 11) / 20
+        planeColumnW = max(18, textQuarterW - textColumnW - 3)
+        planeColumnX = logoQuarterW + textColumnW + 2
     } else {
-        renderFallback(b, icao, logoX, logoY, logoSize)
+        textColumnW = textQuarterW
+        planeColumnW = 0
+        planeColumnX = gw
     }
-
-    let s1 = logoX + logoSize + 2
-    b.vline(s1, 2, gh-4, sep)
-
-    let tx = s1 + 3
-    var ty = 3
-    b.txt(name, tx, ty, .wh); ty += 9
-    b.txt(f.callsign, tx, ty, .wh); ty += 9
-    b.line(tx, ty, 35, sep); ty += 3
-    b.txt(f.altitudeStatus.uppercased(), tx, ty, .cy); ty += 9
-    b.txt(String(format:"%.2f N", f.latitude), tx, ty, .cy); ty += 9
-    if ty+7 < gh { b.txt(String(format:"%.2f W", abs(f.longitude)), tx, ty, .cy) }
-
-    let s2 = gw - 42
-    b.vline(s2, 2, gh-4, sep)
-
-    let sx = s2+3; var sy = 3
-    b.txt("ALT:", sx, sy, .dm); sy += 8
-    b.txt("\(f.altitudeInFeet/1000)K", sx, sy, .cy); sy += 10
-    b.txt("SPD:", sx, sy, .dm); sy += 8
-    b.txt("\(f.velocityInKnots)KT", sx, sy, .cy); sy += 10
-    if sy+14 < gh { b.txt("TRK:", sx, sy, .dm); sy += 8; b.txt("\(Int(f.heading))D", sx, sy, .cy) }
-
-    return b
+    let logoSize = min(logoQuarterW - 6, gh - 12)
+    let maxChars = max(9, (textColumnW - 4) / glyphW)
+    return BoardLayout(
+        gw: gw, gh: gh, pitch: pitch,
+        logoSize: logoSize, logoQuarterW: logoQuarterW, textQuarterW: textQuarterW,
+        textColumnW: textColumnW, planeColumnW: planeColumnW, planeColumnX: planeColumnX,
+        maxChars: maxChars
+    )
 }
 
-func buildSmall(_ f: Flight?, _ gw: Int, _ gh: Int) -> LB {
+private func aircraftPlacement(for flight: Flight, layout: BoardLayout) -> AircraftPlacement? {
+    guard layout.planeColumnW > 0,
+          AircraftIcon.hasWidgetModel(for: flight.type),
+          let asset = AircraftIcon.assetName(for: flight.type) else { return nil }
+    let size = layout.logoSize
+    let col = layout.planeColumnX + max(0, (layout.planeColumnW - size) / 2)
+    let row = max(2, (layout.gh - size) / 2)
+    return AircraftPlacement(asset: asset, col: col, row: row, size: size)
+}
+
+private struct BoardPlacement {
+    let logoX: Int
+    let logoY: Int
+    let textX: Int
+    let startY: Int
+}
+
+private func mediumPlacement(layout: BoardLayout) -> BoardPlacement {
+    let blockH = rowStep * 4 + glyphH + sectionGap
+    let startY = max(2, (layout.gh - blockH) / 2)
+    let logoX = max(2, layout.logoQuarterW / 2 - layout.logoSize / 2)
+    let logoY = max(2, (layout.gh - layout.logoSize) / 2)
+    let textX = layout.logoQuarterW + 3
+    return BoardPlacement(
+        logoX: logoX,
+        logoY: logoY,
+        textX: textX,
+        startY: startY
+    )
+}
+
+/// LED grid locked to widget bounds; all glyphs stay inside the matrix.
+func buildWall(flight: Flight?, route: RouteData?, size: CGSize) -> (LB, CGFloat, LogoPlacement?, AircraftPlacement?) {
+    guard let f = flight else {
+        let layout = boardLayout(size: size, reservePlaneColumn: false)
+        let b = LB(layout.gw, layout.gh)
+        let fitPitch = min(size.width / CGFloat(layout.gw), size.height / CGFloat(layout.gh))
+        let y = (layout.gh - glyphH) / 2
+        b.txt(b.fit("SCANNING", maxChars: 8), (layout.gw - 8 * glyphW) / 2, max(2, y - 5), .cy)
+        b.txt(b.fit("AIRSPACE", maxChars: 8), (layout.gw - 8 * glyphW) / 2, y + 6, .wh)
+        return (b, fitPitch, nil, nil)
+    }
+
+    let hasPlaneArt = AircraftIcon.hasWidgetModel(for: f.type)
+    let layout = boardLayout(size: size, reservePlaneColumn: hasPlaneArt)
+    let b = LB(layout.gw, layout.gh)
+    let fitPitch = min(size.width / CGFloat(layout.gw), size.height / CGFloat(layout.gh))
+
+    let lines = boardLines(flight: f, route: route, maxChars: layout.maxChars)
+    let place = mediumPlacement(layout: layout)
+    let logoY = place.logoY
+
+    // Prefer the bundled brand logo; fall back to the LED-dot mark.
+    let placement: LogoPlacement?
+    if let asset = AirlineLogoAsset.assetName(forCallsign: f.callsign) {
+        placement = LogoPlacement(asset: asset, col: place.logoX, row: logoY, size: layout.logoSize)
+    } else {
+        renderBrandLogo(b, callsign: f.callsign, ox: place.logoX, oy: logoY, size: layout.logoSize)
+        placement = nil
+    }
+
+    let y0 = place.startY
+    let y1 = y0 + rowStep
+    let y2 = y1 + rowStep
+    let y3 = y2 + rowStep + sectionGap
+    let y4 = y3 + rowStep
+
+    b.txt(lines.airline, place.textX, y0, .wh)
+    b.txt(lines.callsign, place.textX, y1, brandLC(callsign: f.callsign))
+    b.txt(lines.aircraft, place.textX, y2, .wh)
+    b.txt(lines.status, place.textX, y3, statusLC(for: f))
+    b.txt(lines.place, place.textX, y4, .wh)
+
+    let plane = aircraftPlacement(for: f, layout: layout)
+    return (b, fitPitch, placement, plane)
+}
+
+func buildSmall(flight: Flight?, route: RouteData?, size: CGSize) -> (LB, CGFloat, LogoPlacement?) {
+    let pitch: CGFloat = 2.5
+    let gw = max(48, Int(size.width / pitch))
+    let gh = max(48, Int(size.height / pitch))
+    let fitPitch = min(size.width / CGFloat(gw), size.height / CGFloat(gh))
     let b = LB(gw, gh)
-    guard let f = f else {
-        b.txt("NO", gw/2-6, gh/2-8, .dm)
-        b.txt("SIGNAL", gw/2-18, gh/2, .dm)
-        return b
-    }
-    let icao = String(f.callsign.prefix(3)).uppercased()
-    let sz = 12
-    if let logo = LogoEngine.shared.getCachedLogo(icao: icao, size: sz) {
-        renderLogo(b, logo, 1, 1)
-    } else { renderFallback(b, icao, 1, 1, sz) }
 
-    b.txt(f.callsign, 2, sz+3, .wh)
-    b.line(2, sz+11, gw-4, LC(r:0.10,g:0.12,b:0.18))
-    b.txt("A:\(f.altitudeInFeet/1000)K", 2, sz+14, .cy)
-    b.txt("S:\(f.velocityInKnots)", 2, sz+22, .cy)
-    return b
+    guard let f = flight else {
+        let y = gh / 2
+        b.txt("SCAN", (gw - 5 * glyphW) / 2, y - 8, .cy)
+        b.txt("AIRSPACE", (gw - 8 * glyphW) / 2, y + 2, .wh)
+        return (b, fitPitch, nil)
+    }
+
+    let logoSize = 18
+    let airline = String(airlineName(f.callsign).prefix(9))
+    let secondLine = FlightLEDCopy.routeLine(route) ?? FlightLEDCopy.displayCallsign(for: f)
+    let secondColor: LC = FlightLEDCopy.routeLine(route) != nil ? .wh : brandLC(callsign: f.callsign)
+
+    let blockW = max(logoSize, textWidth(airline), textWidth(secondLine)) + 6
+    let blockH = logoSize + 4 + glyphH + 2 + glyphH
+    let originX = max(2, (gw - blockW) / 2)
+    let originY = max(2, (gh - blockH) / 2)
+    let logoX = originX + (blockW - logoSize) / 2
+    let textX = originX + 3
+
+    let placement: LogoPlacement?
+    if let asset = AirlineLogoAsset.assetName(forCallsign: f.callsign) {
+        placement = LogoPlacement(asset: asset, col: logoX, row: originY, size: logoSize)
+    } else {
+        renderBrandLogo(b, callsign: f.callsign, ox: logoX, oy: originY, size: logoSize)
+        placement = nil
+    }
+
+    var y = originY + logoSize + 4
+    b.txt(airline, textX, y, .wh)
+    y += glyphH + 2
+    b.txt(secondLine, textX, y, secondColor)
+    return (b, fitPitch, placement)
 }
 
-// MARK: ── LED MATRIX CANVAS ─────────────────────────────────────────
+// MARK: - Canvas
 
 struct LEDView: View {
-    let buf: LB; let pitch: CGFloat
+    let buf: LB
+    let pitch: CGFloat
+    var logo: LogoPlacement? = nil
+    var aircraft: AircraftPlacement? = nil
+
     var body: some View {
-        Canvas { ctx, size in
-            ctx.fill(Path(CGRect(origin:.zero, size:size)), with:.color(Color(red:0.018,green:0.018,blue:0.025)))
-            let dotR = pitch*0.32, glowR = pitch*0.85, offR = pitch*0.17
-            for row in 0..<buf.h { for col in 0..<buf.w {
-                let cx = CGFloat(col)*pitch + pitch*0.5
-                let cy = CGFloat(row)*pitch + pitch*0.5
-                let p = buf.px[row][col]
-                if p.on {
-                    ctx.fill(Path(ellipseIn: CGRect(x:cx-glowR,y:cy-glowR,width:glowR*2,height:glowR*2)), with:.color(p.c.glow))
-                    ctx.fill(Path(ellipseIn: CGRect(x:cx-dotR,y:cy-dotR,width:dotR*2,height:dotR*2)), with:.color(p.c.color))
-                } else {
-                    ctx.fill(Path(ellipseIn: CGRect(x:cx-offR,y:cy-offR,width:offR*2,height:offR*2)),
-                             with:.color(Color(red:0.05,green:0.05,blue:0.06)))
-                }
-            }}
-        }
-    }
-}
-
-// MARK: ── WIDGET VIEWS ──────────────────────────────────────────────
-
-struct RefreshFlightsIntent: AppIntent {
-    static var title: LocalizedStringResource = "Refresh"
-    func perform() async throws -> some IntentResult {
-        WidgetCenter.shared.reloadTimelines(ofKind: "FlightTrackerWidget")
-        return .result()
-    }
-}
-
-struct FlightEntry: TimelineEntry { let date: Date; let flights: [Flight] }
-
-struct MediumWall: View {
-    let entry: FlightEntry; let gw = 130, gh = 50
-    var body: some View {
-        GeometryReader { geo in
-            let pitch = min(geo.size.width/CGFloat(gw), geo.size.height/CGFloat(gh))
-            let buf = buildWall(entry.flights.first, entry.flights.count, gw, gh)
-            ZStack {
-                Color(red:0.018,green:0.018,blue:0.025)
-                LEDView(buf:buf, pitch:pitch)
-                RoundedRectangle(cornerRadius:6).stroke(
-                    LinearGradient(colors:[
-                        Color(red:0.22,green:0.22,blue:0.24),
-                        Color(red:0.06,green:0.06,blue:0.08),
-                        Color(red:0.18,green:0.18,blue:0.20)],
-                    startPoint:.topLeading,endPoint:.bottomTrailing), lineWidth:2.5)
-                VStack{Spacer();HStack{Spacer()
-                    if #available(iOSApplicationExtension 17.0, *) {
-                        Button(intent:RefreshFlightsIntent()){
-                            Image(systemName:"arrow.clockwise").font(.system(size:9,weight:.bold))
-                                .foregroundColor(Color(red:0.4,green:0.78,blue:0.98))
-                                .padding(4).background(Color.black.opacity(0.7)).clipShape(Circle())
-                                .shadow(color:Color(red:0.4,green:0.78,blue:0.98).opacity(0.5),radius:3)
-                        }.buttonStyle(.plain)
+        Canvas { ctx, canvasSize in
+            let dotR = pitch * 0.36
+            let glowR = pitch * 0.72
+            for row in 0..<buf.h {
+                for col in 0..<buf.w {
+                    let cx = CGFloat(col) * pitch + pitch * 0.5
+                    let cy = CGFloat(row) * pitch + pitch * 0.5
+                    let p = buf.px[row][col]
+                    if p.on && p.c.r + p.c.g + p.c.b > 0.35 {
+                        ctx.fill(
+                            Path(ellipseIn: CGRect(x: cx - glowR, y: cy - glowR, width: glowR * 2, height: glowR * 2)),
+                            with: .color(p.c.glow))
+                        ctx.fill(
+                            Path(ellipseIn: CGRect(x: cx - dotR, y: cy - dotR, width: dotR * 2, height: dotR * 2)),
+                            with: .color(p.c.color))
+                    } else if p.on {
+                        let d = pitch * 0.14
+                        ctx.fill(
+                            Path(ellipseIn: CGRect(x: cx - d, y: cy - d, width: d * 2, height: d * 2)),
+                            with: .color(Color(red: 0.06, green: 0.065, blue: 0.08)))
                     }
-                }.padding(5)}
+                }
+            }
+
+            // Bundled brand logo — aspect-fit inside reserved cells, no opaque black matte.
+            if let logo, let ui = AirlineLogoAsset.preparedImage(named: logo.asset) {
+                let rect = CGRect(x: CGFloat(logo.col) * pitch,
+                                  y: CGFloat(logo.row) * pitch,
+                                  width: CGFloat(logo.size) * pitch,
+                                  height: CGFloat(logo.size) * pitch)
+                let fit = CGRect.aspectFit(imageSize: ui.size, in: rect.insetBy(dx: pitch * 0.4, dy: pitch * 0.4))
+                ctx.draw(ctx.resolve(Image(uiImage: ui)), in: fit)
+            }
+
+            if let aircraft, let ui = AircraftIcon.widgetModelImage(named: aircraft.asset) {
+                let rect = CGRect(x: CGFloat(aircraft.col) * pitch,
+                                  y: CGFloat(aircraft.row) * pitch,
+                                  width: CGFloat(aircraft.size) * pitch,
+                                  height: CGFloat(aircraft.size) * pitch)
+                let fit = CGRect.aspectFit(imageSize: ui.size, in: rect.insetBy(dx: pitch * 0.15, dy: pitch * 0.15))
+                // Bundled renders are authored nose-up (north). Draw without heading rotation.
+                ctx.draw(ctx.resolve(Image(uiImage: ui)), in: fit)
             }
         }
-        .containerBackground(Color(red:0.018,green:0.018,blue:0.025), for:.widget)
+        .frame(width: CGFloat(buf.w) * pitch, height: CGFloat(buf.h) * pitch)
     }
+}
+
+private struct BoardBezel: View {
+    var body: some View {
+        RoundedRectangle(cornerRadius: 10, style: .continuous)
+            .stroke(
+                LinearGradient(
+                    colors: [
+                        Color(red: 0.28, green: 0.28, blue: 0.30),
+                        Color(red: 0.08, green: 0.08, blue: 0.10),
+                        Color(red: 0.22, green: 0.22, blue: 0.24),
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                ),
+                lineWidth: 3
+            )
+    }
+}
+
+// MARK: - Widget views
+
+struct FlightEntry: TimelineEntry {
+    let date: Date
+    let flight: Flight?
+    let route: RouteData?
+}
+
+struct MediumWall: View {
+    let entry: FlightEntry
+
+    var body: some View {
+        GeometryReader { geo in
+            let (buf, pitch, logo, aircraft) = buildWall(flight: entry.flight, route: entry.route, size: geo.size)
+            let ledW = CGFloat(buf.w) * pitch
+            let ledH = CGFloat(buf.h) * pitch
+
+            ZStack {
+                Color(red: 0.018, green: 0.018, blue: 0.025)
+
+                LEDView(buf: buf, pitch: pitch, logo: logo, aircraft: aircraft)
+                    .frame(width: ledW, height: ledH)
+
+                BoardBezel()
+                    .frame(width: ledW + 8, height: ledH + 8)
+            }
+            .frame(width: geo.size.width, height: geo.size.height)
+        }
+        .widgetURL(widgetDeepLink(for: entry.flight))
+        .containerBackground(Color(red: 0.018, green: 0.018, blue: 0.025), for: .widget)
+    }
+}
+
+private func widgetDeepLink(for flight: Flight?) -> URL? {
+    guard let flight else { return nil }
+    return FlightDeepLink.url(icao24: flight.icao24)
 }
 
 struct SmallWall: View {
-    let entry: FlightEntry; let gw = 50, gh = 50
+    let entry: FlightEntry
+
     var body: some View {
         GeometryReader { geo in
-            let pitch = min(geo.size.width/CGFloat(gw), geo.size.height/CGFloat(gh))
-            let buf = buildSmall(entry.flights.first, gw, gh)
+            let (buf, pitch, logo) = buildSmall(flight: entry.flight, route: entry.route, size: geo.size)
+            let ledW = CGFloat(buf.w) * pitch
+            let ledH = CGFloat(buf.h) * pitch
+
             ZStack {
-                Color(red:0.018,green:0.018,blue:0.025)
-                LEDView(buf:buf, pitch:pitch)
-                RoundedRectangle(cornerRadius:6).stroke(
-                    LinearGradient(colors:[Color(red:0.22,green:0.22,blue:0.24),Color(red:0.06,green:0.06,blue:0.08)],
-                    startPoint:.topLeading,endPoint:.bottomTrailing), lineWidth:2.5)
+                Color(red: 0.018, green: 0.018, blue: 0.025)
+                LEDView(buf: buf, pitch: pitch, logo: logo)
+                    .frame(width: ledW, height: ledH)
+                BoardBezel()
+                    .frame(width: ledW + 6, height: ledH + 6)
             }
+            .frame(width: geo.size.width, height: geo.size.height)
         }
-        .containerBackground(Color(red:0.018,green:0.018,blue:0.025), for:.widget)
+        .widgetURL(widgetDeepLink(for: entry.flight))
+        .containerBackground(Color(red: 0.018, green: 0.018, blue: 0.025), for: .widget)
+    }
+}
+
+struct WidgetBoardView: View {
+    @Environment(\.widgetFamily) private var family
+    let entry: FlightEntry
+
+    var body: some View {
+        switch family {
+        case .systemMedium: MediumWall(entry: entry)
+        default: SmallWall(entry: entry)
+        }
     }
 }
 
 struct FlightTrackerWidget: Widget {
-    let kind = "FlightTrackerWidget"
+    let kind = WidgetBoardStore.kind
     var body: some WidgetConfiguration {
-        StaticConfiguration(kind:kind, provider:FlightTimelineProvider()) { entry in
-            GeometryReader { geo in
-                if geo.size.width > 200 { MediumWall(entry:entry) }
-                else { SmallWall(entry:entry) }
-            }
+        StaticConfiguration(kind: kind, provider: FlightTimelineProvider()) { entry in
+            WidgetBoardView(entry: entry)
         }
-        .configurationDisplayName("Flight Board")
-        .description("LED matrix · auto-fetched airline logos")
-        .supportedFamilies([.systemSmall,.systemMedium])
+        .configurationDisplayName("Overhead Board")
+        .description("Nearest commercial flight · LED airline logo")
+        .supportedFamilies([.systemSmall, .systemMedium])
     }
 }
-
-// MARK: ── TIMELINE PROVIDER ─────────────────────────────────────────
-// Fetches flights AND prefetches airline logos in parallel
 
 struct FlightTimelineProvider: TimelineProvider {
-    func placeholder(in c: Context) -> FlightEntry { FlightEntry(date:Date(),flights:[]) }
-    func getSnapshot(in c: Context, completion: @escaping (FlightEntry) -> Void) {
-        completion(FlightEntry(date:Date(),flights:[]))
+    func placeholder(in context: Context) -> FlightEntry {
+        cachedEntry(maxAge: WidgetBoardStore.maxFallbackAge)
+            ?? FlightEntry(date: Date(), flight: nil, route: nil)
     }
-    func getTimeline(in c: Context, completion: @escaping (Timeline<FlightEntry>) -> Void) {
-        let mgr = CLLocationManager()
-        let lat = mgr.location?.coordinate.latitude ?? 49.2827
-        let lon = mgr.location?.coordinate.longitude ?? -123.1207
-        let r = 50.0, ld = r/111.0, lg = r/(111.0*cos(lat * .pi/180))
-        let urlStr = "https://opensky-network.org/api/states/all?lamin=\(lat-ld)&lamax=\(lat+ld)&lomin=\(lon-lg)&lomax=\(lon+lg)"
 
-        guard let url = URL(string: urlStr) else {
-            completion(Timeline(entries:[FlightEntry(date:Date(),flights:[])], policy:.after(Date().addingTimeInterval(900))))
-            return
+    func getSnapshot(in context: Context, completion: @escaping (FlightEntry) -> Void) {
+        completion(
+            cachedEntry(maxAge: WidgetBoardStore.maxFallbackAge)
+                ?? FlightEntry(date: Date(), flight: nil, route: nil)
+        )
+    }
+
+    func getTimeline(in context: Context, completion: @escaping (Timeline<FlightEntry>) -> Void) {
+        Task {
+            let (entry, reloadAfter) = await Self.loadBoard()
+            completion(Timeline(
+                entries: [entry],
+                policy: .after(Date().addingTimeInterval(reloadAfter))
+            ))
+        }
+    }
+
+    private func cachedEntry(maxAge: TimeInterval) -> FlightEntry? {
+        guard let snap = WidgetBoardStore.load(maxAge: maxAge) else { return nil }
+        return FlightEntry(date: Date(), flight: snap.flight, route: snap.route)
+    }
+
+    /// WidgetKit kills slow timeline work. Return a plane first; route/logo are optional extras.
+    private static func loadBoard() async -> (FlightEntry, TimeInterval) {
+        let cached = WidgetBoardStore.load()
+        let retrySoon: TimeInterval = 90
+        let retryEmpty: TimeInterval = 180
+        let refreshLive: TimeInterval = 300
+
+        func fallback(_ interval: TimeInterval) -> (FlightEntry, TimeInterval) {
+            if let cached, Date().timeIntervalSince(cached.savedAt) <= WidgetBoardStore.maxFallbackAge {
+                return (FlightEntry(date: Date(), flight: cached.flight, route: cached.route), interval)
+            }
+            return (FlightEntry(date: Date(), flight: nil, route: nil), interval)
         }
 
-        // STEP 1: Fetch flight data
-        URLSession.shared.dataTask(with: url) { data, _, _ in
-            var flights: [Flight] = []
-            if let data = data,
-               let json = try? JSONSerialization.jsonObject(with: data) as? [String:Any],
-               let states = json["states"] as? [[Any]] {
-                for s in states {
-                    guard s.count > 10,
-                          let cs = s[1] as? String, !cs.trimmingCharacters(in:.whitespaces).isEmpty,
-                          let fLat = s[6] as? Double, let fLon = s[5] as? Double,
-                          let alt = s[7] as? Double, let vel = s[9] as? Double,
-                          let hdg = s[10] as? Double, let icao = s[0] as? String
-                    else { continue }
-                    flights.append(Flight(callsign:cs.trimmingCharacters(in:.whitespaces),
-                                         latitude:fLat, longitude:fLon, altitude:Int(alt),
-                                         velocity:vel, heading:hdg, icao24:icao))
+        guard let coord = await WidgetLocationFetcher.coordinate() else {
+            return fallback(retrySoon)
+        }
+
+        let result = await NearbyFlightsFetcher.fetch(
+            latitude: coord.latitude,
+            longitude: coord.longitude,
+            radiusKm: 50,
+            timeout: 8
+        )
+
+        switch result {
+        case .unavailable:
+            return fallback(120)
+
+        case .noAircraftNearby:
+            WidgetBoardStore.save(flight: nil, route: nil, near: coord)
+            return (FlightEntry(date: Date(), flight: nil, route: nil), retryEmpty)
+
+        case .flights(let all):
+            let nearest = CommercialFlightFilter.nearest(to: coord, from: all)
+            let flight = WidgetFlightCache.resolve(nearest: nearest, from: all, near: coord)
+            var route: RouteData?
+            if let flight {
+                if cached?.flight?.icao24 == flight.icao24 {
+                    route = cached?.route
                 }
-                flights.sort { $0.altitude > $1.altitude }
+                if knownRouteEnds(route) == nil {
+                    if let lookedUp = await AsyncTimeout.value(seconds: 2.5, operation: {
+                        await lookupRoute(flight)
+                    }) {
+                        route = lookedUp ?? route
+                    }
+                }
+                if AirlineLogoAsset.assetName(forCallsign: flight.callsign) == nil,
+                   AirlineLEDCache.cachedGrid(callsign: flight.callsign) == nil {
+                    await AsyncTimeout.value(seconds: 1.0, operation: {
+                        await AirlineLEDCache.prefetch(callsign: flight.callsign)
+                    })
+                }
             }
+            WidgetBoardStore.save(flight: flight, route: route, near: coord)
+            return (
+                FlightEntry(date: Date(), flight: flight, route: route),
+                flight == nil ? retryEmpty : refreshLive
+            )
+        }
+    }
 
-            // STEP 2: Prefetch logos for top 5 airlines (parallel)
-            let topICAOs = Array(Set(flights.prefix(5).map {
-                String($0.callsign.prefix(3)).uppercased()
-            }))
-
-            let group = DispatchGroup()
-            for icao in topICAOs {
-                group.enter()
-                LogoEngine.shared.prefetchLogo(icao: icao) { group.leave() }
-            }
-
-            // STEP 3: Build timeline after logos are cached
-            group.notify(queue: .main) {
-                let entry = FlightEntry(date: Date(), flights: flights)
-                let next = Date().addingTimeInterval(900)
-                completion(Timeline(entries: [entry], policy: .after(next)))
-            }
-        }.resume()
+    private static func lookupRoute(_ flight: Flight) async -> RouteData? {
+        guard let airports = await RouteLookupService.fetch(
+            icao24: flight.icao24,
+            callsign: flight.callsign
+        ) else { return nil }
+        let d = displayAP(airports.departure).code
+        let a = displayAP(airports.arrival).code
+        guard isKnownAirportCode(d), isKnownAirportCode(a) else { return nil }
+        return RouteData(dep: d, arr: a)
     }
 }
 
-#Preview(as:.systemMedium) {
+#Preview(as: .systemMedium) {
     FlightTrackerWidget()
-} timeline: { FlightEntry(date:.now,flights:[]) }
+} timeline: {
+    FlightEntry(date: .now, flight: nil, route: nil)
+}

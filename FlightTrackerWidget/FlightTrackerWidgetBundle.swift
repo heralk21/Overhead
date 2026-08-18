@@ -12,7 +12,5 @@ import SwiftUI
 struct FlightTrackerWidgetBundle: WidgetBundle {
     var body: some Widget {
         FlightTrackerWidget()
-        FlightTrackerWidgetControl()
-        FlightTrackerWidgetLiveActivity()
     }
 }

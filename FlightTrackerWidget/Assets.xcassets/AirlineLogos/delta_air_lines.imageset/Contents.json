@@ -1,0 +1,12 @@
+{
+  "images" : [
+    {
+      "filename" : "delta_air_lines.png",
+      "idiom" : "universal"
+    }
+  ],
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  }
+}

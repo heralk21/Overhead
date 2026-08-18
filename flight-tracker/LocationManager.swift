@@ -11,8 +11,15 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     override init() {
         super.init()
         manager.delegate = self
-        manager.desiredAccuracy = kCLLocationAccuracyKilometer // low accuracy = faster + less battery
+        manager.desiredAccuracy = kCLLocationAccuracyHundredMeters
         authStatus = manager.authorizationStatus
+    }
+
+    /// Last system location if it is recent enough to use without waiting for GPS.
+    func recentLocation(maxAge: TimeInterval = 900) -> CLLocation? {
+        guard let loc = manager.location else { return nil }
+        guard abs(loc.timestamp.timeIntervalSinceNow) < maxAge else { return nil }
+        return loc
     }
 
     func requestOnce(
@@ -27,19 +34,23 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
             manager.requestWhenInUseAuthorization()
         case .denied, .restricted:
             onError("Location access denied. Enable it in Settings to use your position.")
+            self.onLocation = nil
+            self.onError = nil
         case .authorizedWhenInUse, .authorizedAlways:
-            manager.requestLocation() // one-shot, stops automatically
+            manager.requestLocation()
         @unknown default:
             onError("Unknown location status.")
+            self.onLocation = nil
+            self.onError = nil
         }
     }
 
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let location = locations.first else { return }
+        SharedWidgetLocation.save(location)
         onLocation?(location)
         onLocation = nil
         onError = nil
-        manager.stopUpdatingLocation()
     }
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
@@ -50,10 +61,19 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
 
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         authStatus = manager.authorizationStatus
-        if authStatus == .authorizedWhenInUse || authStatus == .authorizedAlways {
+        switch authStatus {
+        case .authorizedAlways, .authorizedWhenInUse:
             if onLocation != nil {
                 manager.requestLocation()
             }
+        case .denied, .restricted:
+            if let onError {
+                onError("Location access denied. Enable it in Settings to use your position.")
+                self.onLocation = nil
+                self.onError = nil
+            }
+        default:
+            break
         }
     }
 }

@@ -1,0 +1,41 @@
+{
+  "project": "Overhead Product Reel",
+  "targetDevice": "iPhone 17 Pro",
+  "figmaFrame": { "width": 402, "height": 874, "unit": "pt" },
+  "jitterExport": {
+    "recommendedResolution": { "width": 1206, "height": 2622, "scale": "3x" },
+    "fps": 60,
+    "background": "#050609",
+    "importSource": "Figma plugin — Import from Figma",
+    "animatableLayers": [
+      "Layer/Map",
+      "Layer/Aircraft-Pin/*",
+      "Component/Bottom-Pill",
+      "Card/Quick",
+      "Card/Detail",
+      "Card/Board",
+      "Overlay/Scanning",
+      "Banner/Error"
+    ],
+    "doNotAnimate": ["Glass blur", "Background blur effects"]
+  },
+  "shots": [
+    { "id": 1, "figmaFrame": "Reel / 01 — Map Idle", "durationSec": 2.0, "motion": "Slow map drift, pins visible" },
+    { "id": 2, "figmaFrame": "Reel / 02 — Map Scanning", "durationSec": 1.5, "motion": "Scanning overlay fade in" },
+    { "id": 3, "figmaFrame": "Reel / 01 — Map Idle", "durationSec": 0.5, "motion": "Scanning fade out, flights appear" },
+    { "id": 4, "figmaFrame": "Reel / 01 — Map Idle", "durationSec": 1.0, "motion": "Ease toward ACA873 pin" },
+    { "id": 5, "figmaFrame": "Reel / 03 — Quick Card", "durationSec": 2.5, "motion": "Card slide up spring from bottom" },
+    { "id": 6, "figmaFrame": "Reel / 03 — Quick Card", "durationSec": 1.5, "motion": "Highlight stat rows sequentially" },
+    { "id": 7, "figmaFrame": "Reel / 04 — Detail Loaded", "durationSec": 2.0, "motion": "Quick → Detail transition" },
+    { "id": 8, "figmaFrame": "Reel / 04 — Detail Loaded", "durationSec": 2.0, "motion": "Slow spec row scroll" },
+    { "id": 9, "figmaFrame": "Reel / 05 — Board Open", "durationSec": 2.0, "motion": "Detail dismiss, board slide up" },
+    { "id": 10, "figmaFrame": "Reel / 05 — Board Open", "durationSec": 1.5, "motion": "Row highlight, tap WJA158" },
+    { "id": 11, "figmaFrame": "Reel / 06 — Board → Detail Transition", "durationSec": 2.0, "motion": "WestJet detail card" },
+    { "id": 12, "figmaFrame": "Reel / 01 — Map Idle", "durationSec": 2.0, "motion": "All cards dismiss, return to map" },
+    { "id": 13, "figmaFrame": "Reel / 08 — Widget Medium", "durationSec": 1.5, "motion": "Widget cutaway (optional)" },
+    { "id": 14, "figmaFrame": "Reel / 01 — Map Idle", "durationSec": 1.0, "motion": "End card: Overhead logo overlay" }
+  ],
+  "totalDurationSec": 22,
+  "featuredFlight": "aca873",
+  "secondaryFlight": "wja158"
+}
