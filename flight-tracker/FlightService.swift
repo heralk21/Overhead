@@ -1,5 +1,6 @@
-import Foundation
 import Combine
+import CoreLocation
+import Foundation
 
 /// Shared nearby-flight fetch used by the app, widget, and watch.
 enum NearbyFlightsFetcher {
@@ -13,7 +14,7 @@ enum NearbyFlightsFetcher {
         "https://api.airplanes.live/v2/point",
         "https://api.adsb.lol/v2/point"
     ]
-    private static let requestTimeout: TimeInterval = 12
+    private static let requestTimeout: TimeInterval = 8
 
     static func fetch(
         latitude: Double,
@@ -90,11 +91,16 @@ class FlightService: ObservableObject {
 
     private var fetchGeneration = 0
 
-    func fetchFlights(latitude: Double, longitude: Double, radiusKm: Double = 50.0) {
-        fetchGeneration += 1
+    func fetchFlights(latitude: Double, longitude: Double, radiusKm: Double = 50.0, attempt: Int = 0) {
+        if attempt == 0 {
+            fetchGeneration += 1
+            isLoading = true
+            errorMessage = nil
+            if flights.isEmpty, let cached = FlightListCache.load(nearLatitude: latitude, nearLongitude: longitude) {
+                flights = cached
+            }
+        }
         let generation = fetchGeneration
-        isLoading = true
-        errorMessage = nil
 
         Task { [weak self] in
             guard let self else { return }
@@ -105,17 +111,35 @@ class FlightService: ObservableObject {
             )
             await MainActor.run {
                 guard generation == self.fetchGeneration else { return }
-                self.isLoading = false
                 switch result {
                 case .flights(let parsed):
+                    self.isLoading = false
                     self.flights = parsed
                     self.lastUpdate = Date()
                     self.errorMessage = nil
+                    FlightListCache.save(parsed, latitude: latitude, longitude: longitude)
                 case .noAircraftNearby:
+                    self.isLoading = false
                     self.flights = []
                     self.lastUpdate = Date()
                     self.errorMessage = nil
                 case .unavailable:
+                    if attempt < 1 {
+                        Task { [weak self] in
+                            try? await Task.sleep(nanoseconds: 700_000_000)
+                            await MainActor.run {
+                                guard let self, generation == self.fetchGeneration else { return }
+                                self.fetchFlights(
+                                    latitude: latitude,
+                                    longitude: longitude,
+                                    radiusKm: radiusKm,
+                                    attempt: attempt + 1
+                                )
+                            }
+                        }
+                        return
+                    }
+                    self.isLoading = false
                     if self.flights.isEmpty {
                         self.errorMessage = "Could not load flights. Check your connection and try again."
                     }
@@ -203,5 +227,46 @@ class FlightService: ObservableObject {
         if let n = raw as? NSNumber { return n.doubleValue }
         if let s = raw as? String { return Double(s) }
         return nil
+    }
+}
+
+/// Last successful nearby list so the map can paint on launch instead of waiting.
+private enum FlightListCache {
+    private static let suiteName = "group.HK.flight-tracker"
+    private static let key = "overhead.last_flights"
+    private static let maxAge: TimeInterval = 45 * 60
+    private static let maxDistance: CLLocationDistance = 80_000
+
+    private struct Payload: Codable {
+        var latitude: Double
+        var longitude: Double
+        var savedAt: Date
+        var flights: [Flight]
+    }
+
+    private static var defaults: UserDefaults {
+        UserDefaults(suiteName: suiteName) ?? .standard
+    }
+
+    static func save(_ flights: [Flight], latitude: Double, longitude: Double) {
+        let payload = Payload(
+            latitude: latitude,
+            longitude: longitude,
+            savedAt: Date(),
+            flights: Array(flights.prefix(80))
+        )
+        guard let data = try? JSONEncoder().encode(payload) else { return }
+        defaults.set(data, forKey: key)
+    }
+
+    static func load(nearLatitude: Double, nearLongitude: Double) -> [Flight]? {
+        guard let data = defaults.data(forKey: key),
+              let payload = try? JSONDecoder().decode(Payload.self, from: data)
+        else { return nil }
+        guard Date().timeIntervalSince(payload.savedAt) <= maxAge else { return nil }
+        let here = CLLocation(latitude: nearLatitude, longitude: nearLongitude)
+        let there = CLLocation(latitude: payload.latitude, longitude: payload.longitude)
+        guard here.distance(from: there) <= maxDistance else { return nil }
+        return payload.flights.isEmpty ? nil : payload.flights
     }
 }

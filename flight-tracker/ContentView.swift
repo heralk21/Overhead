@@ -88,6 +88,8 @@ enum CardLayout {
 /// Border-aligned dismiss control — glass circle tucked into the card corner.
 struct CloseButton: View {
     let action: () -> Void
+    /// Darken the frosted circle so it still reads like the card control over a camera feed.
+    var overLivePreview: Bool = false
 
     var body: some View {
         Button(action: action) {
@@ -99,6 +101,11 @@ struct CloseButton: View {
                 .background {
                     Circle()
                         .fill(.ultraThinMaterial)
+                        .overlay {
+                            if overLivePreview {
+                                Circle().fill(Color.black.opacity(0.38))
+                            }
+                        }
                 }
         }
         .buttonStyle(.plain)
@@ -1036,6 +1043,7 @@ struct LiveMap: UIViewRepresentable {
     @Binding var region: MKCoordinateRegion
     let flights: [Flight]
     let selectedId: String?
+    var focusToken: Int = 0
     let onSelect: (Flight) -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
@@ -1044,18 +1052,22 @@ struct LiveMap: UIViewRepresentable {
         let m = MKMapView()
         m.delegate = context.coordinator
         m.showsUserLocation = true
+        m.isZoomEnabled = true
+        m.isScrollEnabled = true
+        m.isRotateEnabled = true
+        m.isPitchEnabled = false
         Self.applyMapAppearance(m)
         m.setRegion(region, animated: false)
+        context.coordinator.appliedFocusToken = focusToken
         return m
     }
 
     func updateUIView(_ m: MKMapView, context: Context) {
-        Self.applyMapAppearance(m)
-        let eps = 0.0005
-        let cur = m.region
-        if abs(cur.center.latitude  - region.center.latitude)  > eps ||
-           abs(cur.center.longitude - region.center.longitude) > eps ||
-           abs(cur.span.latitudeDelta - region.span.latitudeDelta) > eps {
+        context.coordinator.parent = self
+        Self.syncMapDarkenLayer(on: m)
+        if context.coordinator.appliedFocusToken != focusToken {
+            context.coordinator.appliedFocusToken = focusToken
+            context.coordinator.isProgrammatic = true
             m.setRegion(region, animated: true)
         }
         let existing = Dictionary(uniqueKeysWithValues:
@@ -1178,6 +1190,8 @@ struct LiveMap: UIViewRepresentable {
 
     final class Coordinator: NSObject, MKMapViewDelegate {
         var parent: LiveMap
+        var appliedFocusToken: Int = -1
+        var isProgrammatic = false
         init(_ p: LiveMap) { parent = p }
 
         func mapView(_ m: MKMapView, viewFor ann: MKAnnotation) -> MKAnnotationView? {
@@ -1197,7 +1211,11 @@ struct LiveMap: UIViewRepresentable {
         }
 
         func mapView(_ m: MKMapView, regionDidChangeAnimated _: Bool) {
-            DispatchQueue.main.async { self.parent.region = m.region }
+            let capture = m.region
+            let skipBinding = isProgrammatic
+            isProgrammatic = false
+            if skipBinding { return }
+            DispatchQueue.main.async { self.parent.region = capture }
         }
     }
 }
@@ -1208,9 +1226,7 @@ struct ContentView:View {
     @StateObject private var location = LocationManager()
     @StateObject private var aircraft = AircraftService()
 
-    @State private var region = MKCoordinateRegion(
-        center: CLLocationCoordinate2D(latitude: 0, longitude: 0),
-        span: MKCoordinateSpan(latitudeDelta: 120, longitudeDelta: 120))
+    @State private var region = Self.initialRegion()
     @State private var userCoord:   CLLocationCoordinate2D? = nil
     @State private var quickFlight: Flight?  = nil
     @State private var detailFlight:Flight?  = nil
@@ -1220,14 +1236,30 @@ struct ContentView:View {
     @State private var awaitingLocation = true
     @State private var routes:       [String:RouteData] = [:]
     @State private var pendingFlightIcao: String? = nil
+    @State private var showCamera = false
+    @State private var showProfile = false
+    @State private var mapFocusToken = 0
+    @StateObject private var profile = UserProfile()
     @Environment(\.scenePhase) private var scenePhase
 
     let timer = Timer.publish(every:60,on:.main,in:.common).autoconnect()
 
     private var showScanningOverlay: Bool {
-        service.flights.isEmpty
-            && service.errorMessage == nil
-            && (service.isLoading || awaitingLocation)
+        service.errorMessage == nil
+            && (awaitingLocation || !didCenterOnUser || (service.isLoading && service.flights.isEmpty))
+    }
+
+    private static func initialRegion() -> MKCoordinateRegion {
+        if let coord = SharedWidgetLocation.coordinate(maxAge: .infinity) {
+            return MKCoordinateRegion(
+                center: coord,
+                span: MKCoordinateSpan(latitudeDelta: 1.4, longitudeDelta: 1.4)
+            )
+        }
+        return MKCoordinateRegion(
+            center: CLLocationCoordinate2D(latitude: 0, longitude: 0),
+            span: MKCoordinateSpan(latitudeDelta: 120, longitudeDelta: 120)
+        )
     }
 
     var body: some View {
@@ -1236,22 +1268,48 @@ struct ContentView:View {
             // ── FULL-SCREEN DARK MAP (native animated zoom via setRegion) ──
             LiveMap(region:     $region,
                     flights:    service.flights,
-                    selectedId: quickFlight?.id,
+                    selectedId: (detailFlight ?? quickFlight)?.id,
+                    focusToken: mapFocusToken,
                     onSelect:   tapPin)
                 .ignoresSafeArea()
-
-            // ── BOTTOM PILL: list toggle + refresh (map only — hidden when any card is open) ──
-            VStack {
-                Spacer()
-                if quickFlight == nil && !showBoard && detailFlight == nil {
-                    bottomPill
-                        .padding(.bottom, 34)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                .overlay(alignment: .top) {
+                    if !showCamera {
+                        VStack(spacing: 10) {
+                            MapAccountHeader(photo: profile.photo) {
+                                showProfile = true
+                            }
+                            if let message = service.errorMessage, !service.isLoading {
+                                HStack(spacing: 10) {
+                                    Image(systemName: "exclamationmark.triangle.fill")
+                                        .foregroundColor(C.coral)
+                                    Text(message)
+                                        .font(.system(size: 12, weight: .medium))
+                                        .foregroundColor(C.t1)
+                                        .multilineTextAlignment(.leading)
+                                    Spacer(minLength: 8)
+                                    Button("Retry") { refresh() }
+                                        .font(.system(size: 12, weight: .semibold))
+                                        .foregroundColor(C.ledBlue)
+                                }
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 12)
+                                .background { GlassBg(radius: 16) }
+                                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                                .padding(.horizontal, 12)
+                            }
+                        }
+                        .safeAreaPadding(.top)
+                    }
                 }
-            }
-            .zIndex(0)
-            .animation(.spring(response: 0.38, dampingFraction: 0.82),
-                       value: quickFlight == nil && !showBoard && detailFlight == nil)
+                .overlay(alignment: .bottom) {
+                    if quickFlight == nil && !showBoard && detailFlight == nil && !showCamera {
+                        bottomPill
+                            .padding(.bottom, 34)
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
+                }
+                .animation(.spring(response: 0.38, dampingFraction: 0.82),
+                           value: quickFlight == nil && !showBoard && detailFlight == nil && !showCamera)
 
             // ── FLOATING CARDS (pinned to bottom) ──
             ZStack(alignment: .bottom) {
@@ -1261,7 +1319,9 @@ struct ContentView:View {
                         onRefresh: { refresh() },
                         onDetail: { f in
                             showBoard = false
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { openDetail(f) }
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.28) {
+                                openDetail(f)
+                            }
                         },
                         maxListHeight: geo.size.height * 0.48)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -1293,12 +1353,39 @@ struct ContentView:View {
             .padding(.bottom, CardLayout.bottomMargin)
             .ignoresSafeArea(edges: .bottom)
             .zIndex(5)
+            .allowsHitTesting(showBoard || quickFlight != nil || detailFlight != nil)
             .animation(.spring(response: 0.42, dampingFraction: 0.82), value: showBoard)
             .animation(.spring(response: 0.42, dampingFraction: 0.82), value: quickFlight?.id)
             .animation(.spring(response: 0.42, dampingFraction: 0.82), value: detailFlight?.id)
 
+            // ── CAMERA SCAN (full-screen) ──
+            if showCamera {
+                CameraScanView(
+                    flights: service.flights,
+                    userCoordinate: userCoord
+                        ?? location.recentLocation()?.coordinate
+                        ?? SharedWidgetLocation.coordinate(maxAge: .infinity),
+                    onClose: {
+                        withAnimation(.spring(response: 0.42, dampingFraction: 0.82)) {
+                            showCamera = false
+                        }
+                    },
+                    onIdentified: { f in
+                        withAnimation(.spring(response: 0.42, dampingFraction: 0.82)) {
+                            showCamera = false
+                        }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.28) {
+                            tapPin(f)
+                        }
+                    }
+                )
+                .ignoresSafeArea()
+                .transition(.opacity)
+                .zIndex(20)
+            }
+
             // ── Scanning overlay (first load only) ──
-            if showScanningOverlay {
+            if showScanningOverlay, !showCamera {
                 VStack(spacing: 16) {
                     LEDLabel("SCANNING AIRSPACE", dotPt: LEDSize.scanChip, color: C.ledBlue)
                         .frame(height: 7 * LEDSize.scanChip)
@@ -1314,36 +1401,12 @@ struct ContentView:View {
                 .allowsHitTesting(false)
             }
 
-            // ── Error banner ──
-            if let message = service.errorMessage, !service.isLoading {
-                VStack {
-                    HStack(spacing: 10) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundColor(C.coral)
-                        Text(message)
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(C.t1)
-                            .multilineTextAlignment(.leading)
-                        Spacer(minLength: 8)
-                        Button("Retry") { refresh() }
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundColor(C.ledBlue)
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
-                    .background { GlassBg(radius: 16) }
-                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                    .padding(.horizontal, 12)
-                    .padding(.top, 56)
-                    Spacer()
-                }
-                .transition(.move(edge: .top).combined(with: .opacity))
-                .zIndex(3)
-            }
-
         }
         } // GeometryReader
         .preferredColorScheme(.dark)
+        .fullScreenCover(isPresented: $showProfile) {
+            ProfileView(profile: profile)
+        }
         .onOpenURL { url in
             if let icao = FlightDeepLink.icao24(from: url) {
                 openFlightFromDeepLink(icao24: icao)
@@ -1353,6 +1416,9 @@ struct ContentView:View {
             awaitingLocation = true
             service.errorMessage = nil
             Task { _ = try? await OpenSkyAuth.shared.bearerToken() }
+            #if DEBUG
+            MapFraming.selfCheck()
+            #endif
             bootstrapFromCachedLocation()
             location.requestOnce(
                 onLocation: { loc in
@@ -1383,15 +1449,15 @@ struct ContentView:View {
             }
             resolvePendingFlightDeepLink(in: fl)
             if !hasZoomedOnce, let coord = userCoord ?? location.recentLocation()?.coordinate {
-                // Only auto-frame when the loaded flights are actually near the user,
-                // so a stale default-region (Vancouver) batch never hijacks the view.
                 let ul = CLLocation(latitude: coord.latitude, longitude: coord.longitude)
                 let nearest = fl.map {
                     CLLocation(latitude: $0.latitude, longitude: $0.longitude).distance(from: ul)
                 }.min() ?? .infinity
+                hasZoomedOnce = true
                 if nearest < 300_000 {
-                    hasZoomedOnce = true
                     zoomToClosest5(coord)
+                } else {
+                    centerMap(on: coord, span: MapFraming.defaultUserSpan)
                 }
             }
         }
@@ -1416,11 +1482,18 @@ struct ContentView:View {
         }
     }
 
-    /// Open the aircraft-detail card for a flight.
+    /// Open the aircraft-detail card for a flight, zoomed onto that plane.
     func openDetail(_ f: Flight) {
-        fetchRoute(f)
-        aircraft.fetch(f)
-        detailFlight = f
+        if quickFlight?.id == f.id {
+            fetchRoute(f)
+            aircraft.fetch(f)
+            AirlineLogo.prefetch(callsign: f.callsign)
+            withAnimation(.spring(response: 0.42, dampingFraction: 0.82)) {
+                detailFlight = f
+            }
+            return
+        }
+        focusOnFlight(f, showDetail: true)
     }
 
     var bottomPill: some View {
@@ -1434,6 +1507,17 @@ struct ContentView:View {
             }
             .accessibilityLabel("Flight list")
             .accessibilityHint("Shows nearby flights")
+            Rectangle().fill(Color.white.opacity(0.18)).frame(width: 0.5, height: 22)
+                .accessibilityHidden(true)
+            Button(action: openCameraScan) {
+                Image(systemName: "camera.fill")
+                    .font(.system(size: 17, weight: .medium))
+                    .symbolRenderingMode(.monochrome)
+                    .foregroundStyle(Color.white)
+                    .frame(width: 66, height: 52)
+            }
+            .accessibilityLabel("Scan aircraft")
+            .accessibilityHint("Opens the camera to identify a plane in the sky")
             Rectangle().fill(Color.white.opacity(0.18)).frame(width: 0.5, height: 22)
                 .accessibilityHidden(true)
             Button(action: refresh) {
@@ -1478,29 +1562,41 @@ struct ContentView:View {
         tapPin(match)
     }
 
+    func openCameraScan() {
+        showBoard = false
+        detailFlight = nil
+        quickFlight = nil
+        fetchFlightsNearUser()
+        withAnimation(.spring(response: 0.42, dampingFraction: 0.82)) {
+            showCamera = true
+        }
+    }
+
     func tapPin(_ f:Flight) {
         if quickFlight?.id == f.id, !showBoard, detailFlight == nil {
             dismissFlightSelection()
             return
         }
-        // Zoom in so plane is visible in top portion of map (above the quick card)
-        let span = 0.22
-        let latShift = span * 0.30   // shift center south → plane appears in upper 60%
-        withAnimation(.spring(response: 0.45, dampingFraction: 0.82)) {
-            region = MKCoordinateRegion(
-                center: CLLocationCoordinate2D(
-                    latitude:  f.latitude  - latShift,
-                    longitude: f.longitude),
-                span: MKCoordinateSpan(latitudeDelta:span, longitudeDelta:span))
-        }
-        withAnimation(.spring(response:0.42,dampingFraction:0.82)) {
+        focusOnFlight(f, showDetail: false)
+    }
+
+    /// Centers the map on one aircraft so the pin sits above the card.
+    func focusOnFlight(_ f: Flight, showDetail: Bool) {
+        region = MapFraming.focused(
+            on: CLLocationCoordinate2D(latitude: f.latitude, longitude: f.longitude),
+            spanDegrees: showDetail ? 0.034 : 0.048,
+            southShiftRatio: showDetail ? 0.34 : 0.28
+        )
+        mapFocusToken += 1
+        withAnimation(.spring(response: 0.5, dampingFraction: 0.84)) {
             showBoard = false
-            detailFlight = nil
             quickFlight = f
+            detailFlight = showDetail ? f : nil
         }
         fetchRoute(f)
         aircraft.fetch(f)
         AirlineLogo.prefetch(callsign: f.callsign)
+        profile.recordSpot(from: f)
     }
 
     /// Close quick card / detail and zoom back out to show nearby traffic.
@@ -1517,11 +1613,7 @@ struct ContentView:View {
             ?? location.recentLocation()?.coordinate
             ?? region.center
         if service.flights.isEmpty {
-            withAnimation(.easeInOut(duration: 0.5)) {
-                region = MKCoordinateRegion(
-                    center: center,
-                    span: MKCoordinateSpan(latitudeDelta: 1.4, longitudeDelta: 1.4))
-            }
+            centerMap(on: center, span: MapFraming.defaultUserSpan)
             return
         }
         zoomToClosest5(center)
@@ -1547,13 +1639,13 @@ struct ContentView:View {
     }
 
     private func bootstrapFromCachedLocation() {
-        if let recent = location.recentLocation() {
+        if let recent = location.recentLocation(maxAge: 24 * 60 * 60) {
             SharedWidgetLocation.save(recent, reloadWidget: false)
             beginFlightScan(at: recent.coordinate, animateMap: true)
             awaitingLocation = false
             return
         }
-        if let coord = SharedWidgetLocation.coordinate() {
+        if let coord = SharedWidgetLocation.coordinate(maxAge: .infinity) {
             beginFlightScan(at: coord, animateMap: true)
             awaitingLocation = false
         }
@@ -1562,11 +1654,7 @@ struct ContentView:View {
     private func beginFlightScan(at coord: CLLocationCoordinate2D, animateMap: Bool) {
         userCoord = coord
         if animateMap {
-            withAnimation(.easeInOut(duration: 0.4)) {
-                region = MKCoordinateRegion(
-                    center: coord,
-                    span: MKCoordinateSpan(latitudeDelta: 1.4, longitudeDelta: 1.4))
-            }
+            centerMap(on: coord, span: MapFraming.defaultUserSpan)
         }
         service.fetchFlights(latitude: coord.latitude, longitude: coord.longitude)
     }
@@ -1574,48 +1662,51 @@ struct ContentView:View {
     /// Centers the map on a fresh GPS fix and reloads flights around it.
     private func applyUserLocation(_ loc: CLLocation) {
         SharedWidgetLocation.save(loc)
+        let previous = userCoord
+        let moved = previous.map {
+            CLLocation(latitude: $0.latitude, longitude: $0.longitude).distance(from: loc)
+        } ?? .infinity
         userCoord = loc.coordinate
-        service.fetchFlights(latitude: loc.coordinate.latitude,
-                             longitude: loc.coordinate.longitude)
+        awaitingLocation = false
 
-        let previous = region.center
-        let movedFar = CLLocation(latitude: previous.latitude, longitude: previous.longitude)
-            .distance(from: loc) > 1500
-        guard movedFar || !didCenterOnUser else { return }
-        didCenterOnUser = true
-        hasZoomedOnce = false
-        withAnimation(.easeInOut(duration: 0.4)) {
-            region = MKCoordinateRegion(
-                center: loc.coordinate,
-                span: MKCoordinateSpan(latitudeDelta: 1.4, longitudeDelta: 1.4))
+        let needsFetch = moved > 400 || (service.flights.isEmpty && !service.isLoading)
+        if needsFetch {
+            service.fetchFlights(latitude: loc.coordinate.latitude,
+                                 longitude: loc.coordinate.longitude)
+        }
+
+        if !didCenterOnUser || moved > 1500 {
+            centerMap(on: loc.coordinate, span: MapFraming.defaultUserSpan)
+            if service.flights.isEmpty {
+                hasZoomedOnce = false
+            }
         }
     }
 
     /// Flights at cached GPS / map center — does not wait for a new GPS fix.
     /// Never claims the default map center as the user's real location.
     private func fetchFlightsNearUser() {
-        if let coord = userCoord ?? location.recentLocation()?.coordinate ?? SharedWidgetLocation.coordinate() {
+        if let coord = userCoord
+            ?? location.recentLocation(maxAge: 24 * 60 * 60)?.coordinate
+            ?? SharedWidgetLocation.coordinate(maxAge: .infinity) {
             beginFlightScan(at: coord, animateMap: false)
         }
     }
 
-    func zoomToClosest5(_ coord:CLLocationCoordinate2D) {
-        let ul=CLLocation(latitude:coord.latitude,longitude:coord.longitude)
-        let top=Array(service.flights.sorted {
-            CLLocation(latitude:$0.latitude,longitude:$0.longitude).distance(from:ul) <
-            CLLocation(latitude:$1.latitude,longitude:$1.longitude).distance(from:ul)
-        }.prefix(5))
-        guard !top.isEmpty else { return }
-        let lats=top.map(\.latitude)+[coord.latitude]
-        let lons=top.map(\.longitude)+[coord.longitude]
-        withAnimation(.easeInOut(duration: 0.55)) {
-            region=MKCoordinateRegion(
-                center:CLLocationCoordinate2D(latitude:(lats.min()!+lats.max()!)/2,
-                                              longitude:(lons.min()!+lons.max()!)/2),
-                span:MKCoordinateSpan(
-                    latitudeDelta:max((lats.max()!-lats.min()!)*1.6,0.3),
-                    longitudeDelta:max((lons.max()!-lons.min()!)*1.6,0.3)))
+    private func centerMap(on coord: CLLocationCoordinate2D, span: Double) {
+        didCenterOnUser = true
+        region = MapFraming.region(center: coord, spanDegrees: span)
+        mapFocusToken += 1
+    }
+
+    func zoomToClosest5(_ coord: CLLocationCoordinate2D) {
+        guard let fitted = MapFraming.fitting(user: coord, flights: service.flights) else {
+            centerMap(on: coord, span: MapFraming.defaultUserSpan)
+            return
         }
+        didCenterOnUser = true
+        region = fitted
+        mapFocusToken += 1
     }
 
     func fetchRoute(_ f: Flight) {

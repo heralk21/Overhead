@@ -1,0 +1,12 @@
+{
+  "images" : [
+    {
+      "filename" : "collectible_a380.png",
+      "idiom" : "universal"
+    }
+  ],
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  }
+}

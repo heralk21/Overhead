@@ -1,7 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 6 7" width="60" height="70">
-  <title>LED / 4</title>
-  <g transform="translate(0.5, 0.5)">
-    <circle cx="3" cy="0" r="0.38" fill="#73B8EB"/><circle cx="2" cy="1" r="0.38" fill="#73B8EB"/><circle cx="3" cy="1" r="0.38" fill="#73B8EB"/><circle cx="1" cy="2" r="0.38" fill="#73B8EB"/><circle cx="3" cy="2" r="0.38" fill="#73B8EB"/><circle cx="0" cy="3" r="0.38" fill="#73B8EB"/><circle cx="3" cy="3" r="0.38" fill="#73B8EB"/><circle cx="0" cy="4" r="0.38" fill="#73B8EB"/><circle cx="1" cy="4" r="0.38" fill="#73B8EB"/><circle cx="2" cy="4" r="0.38" fill="#73B8EB"/><circle cx="3" cy="4" r="0.38" fill="#73B8EB"/><circle cx="4" cy="4" r="0.38" fill="#73B8EB"/><circle cx="3" cy="5" r="0.38" fill="#73B8EB"/><circle cx="3" cy="6" r="0.38" fill="#73B8EB"/>
-  </g>
-</svg>

@@ -18,3 +18,13 @@ build/
 # Python
 __pycache__/
 *.pyc
+
+# Local design / process notes — keep on disk, do not push
+Brand/
+figma-export/
+FIGMA_MAKE_INPUT.md
+STITCH_INPUT.md
+VIDEO_SCRIPT_FINAL.md
+VIDEO_WALKTHROUGH.md
+APP_STORE_CHECKLIST.md
+design.md

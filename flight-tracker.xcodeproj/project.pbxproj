@@ -500,6 +500,7 @@
 				INFOPLIST_FILE = OverheadURLScheme.plist;
 				INFOPLIST_KEY_AERO_DATABOX_API_KEY = "$(AERO_DATABOX_API_KEY)";
 				INFOPLIST_KEY_CFBundleDisplayName = Overhead;
+				INFOPLIST_KEY_NSCameraUsageDescription = "Overhead uses the camera so you can point at an aircraft and identify it.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Overhead uses your location to show aircraft flying near you.";
 				INFOPLIST_KEY_OPEN_SKY_CLIENT_ID = "$(OPEN_SKY_CLIENT_ID)";
 				INFOPLIST_KEY_OPEN_SKY_CLIENT_SECRET = "$(OPEN_SKY_CLIENT_SECRET)";
@@ -539,6 +540,7 @@
 				INFOPLIST_FILE = OverheadURLScheme.plist;
 				INFOPLIST_KEY_AERO_DATABOX_API_KEY = "$(AERO_DATABOX_API_KEY)";
 				INFOPLIST_KEY_CFBundleDisplayName = Overhead;
+				INFOPLIST_KEY_NSCameraUsageDescription = "Overhead uses the camera so you can point at an aircraft and identify it.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Overhead uses your location to show aircraft flying near you.";
 				INFOPLIST_KEY_OPEN_SKY_CLIENT_ID = "$(OPEN_SKY_CLIENT_ID)";
 				INFOPLIST_KEY_OPEN_SKY_CLIENT_SECRET = "$(OPEN_SKY_CLIENT_SECRET)";
