@@ -20,7 +20,13 @@
 
 ## Product
 
-Put your captures in `docs/media/screenshots/` using these filenames — this section is already wired to them.
+<p align="center">
+  <em>~40s walkthrough — map, quick card, and details.</em>
+</p>
+
+![Overhead walkthrough](docs/media/screenshots/demo.mp4)
+
+Stills go in `docs/media/screenshots/` with these names:
 
 | `map.png` | `quick-card.png` | `camera.png` |
 | :---: | :---: | :---: |
@@ -31,12 +37,6 @@ Put your captures in `docs/media/screenshots/` using these filenames — this se
 | :---: | :---: | :---: |
 | ![Detail](docs/media/screenshots/detail.png) | ![Board](docs/media/screenshots/board.png) | ![Widget](docs/media/screenshots/widget.png) |
 | Specs without losing the map | Departure-board list | Home Screen widget |
-
-Optional extras: `watch.png`, `profile.png`.
-
-**Walkthrough** — save a screen recording as `docs/media/screenshots/demo.mp4`. GitHub plays MP4 inline. A YouTube (or unlisted) link also works; drop it in place of the file embed.
-
-![Walkthrough](docs/media/screenshots/demo.mp4)
 
 ---
 
